@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "3.0.0-rc.1";
+const TG_VERSION = "3.0.0-rc.2";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -59,7 +59,16 @@ const DEFAULT_ENTITIES = {
   target_temp: `sensor.${DEV}rekuperator_temperatura_zadana`, // 4212: target supply temp
   bypass_cool: `sensor.${DEV}rekuperator_bypass_prog_chlodzenie`, // 4323: free-cooling activation °C
   bypass_heat: `sensor.${DEV}rekuperator_bypass_prog_grzanie`, // 4322: free-heating activation °C
-  bypass_min: `sensor.${DEV}rekuperator_bypass_prog_min`, // 4321: min bypass temp °C
+  bypass_min: `sensor.${DEV}rekuperator_bypass_prog_min`, // 4321: min outdoor temp for bypass °C
+  temp_comfort: `sensor.${DEV}rekuperator_temperatura_komfort`, // 8190: KOMFORT setpoint (bypass ref)
+  // per-mode configured intensities/durations (shown on the mode tiles)
+  airing_pct: `sensor.${DEV}rekuperator_wietrzenie_intensywnosc`, // 4230
+  airing_time: `sensor.${DEV}rekuperator_wietrzenie_czas`, // 4233
+  away_pct: `sensor.${DEV}rekuperator_pusty_dom_intensywnosc`, // 4232
+  window_pct: `sensor.${DEV}rekuperator_okno_intensywnosc`, // 4239
+  fireplace_pct: `sensor.${DEV}rekuperator_kominek_intensywnosc`, // 4228
+  fireplace_time: `sensor.${DEV}rekuperator_kominek_czas`, // 4237
+  speed_temp: `number.${DEV}rekuperator_predkosc_chwilowa`, // 4401: temporary-mode intensity
 };
 
 const ENTITY_RULES = {
@@ -77,7 +86,7 @@ const ENTITY_RULES = {
   temp_supply: { domain: "sensor", suffix: "temperatura_nawiew" },
   temp_extract: { domain: "sensor", suffix: "temperatura_wywiew" },
   temp_fpx: { domain: "sensor", suffix: "temperatura_za_fpx" },
-  temp_ambient: { domain: "sensor", suffix: "temperatura_otoczenia" },
+  temp_ambient: { domain: "sensor", suffix: ["temperatura_otoczenia", "temperatura_pcb"] },
   flow_supply: { domain: "sensor", suffix: "strumien_nawiew" },
   flow_extract: { domain: "sensor", suffix: "strumien_wywiew" },
   efficiency: { domain: "sensor", suffix: "sprawnosc" },
@@ -97,6 +106,14 @@ const ENTITY_RULES = {
   bypass_cool: { domain: "sensor", suffix: "bypass_prog_chlodzenie" },
   bypass_heat: { domain: "sensor", suffix: "bypass_prog_grzanie" },
   bypass_min: { domain: "sensor", suffix: "bypass_prog_min" },
+  temp_comfort: { domain: "sensor", suffix: "temperatura_komfort" },
+  airing_pct: { domain: "sensor", suffix: "wietrzenie_intensywnosc" },
+  airing_time: { domain: "sensor", suffix: "wietrzenie_czas" },
+  away_pct: { domain: "sensor", suffix: "pusty_dom_intensywnosc" },
+  window_pct: { domain: "sensor", suffix: "okno_intensywnosc" },
+  fireplace_pct: { domain: "sensor", suffix: "kominek_intensywnosc" },
+  fireplace_time: { domain: "sensor", suffix: "kominek_czas" },
+  speed_temp: { domain: "number", suffix: "predkosc_chwilowa" },
 };
 
 function findThesslaEntities(hass) {
@@ -128,7 +145,8 @@ function resolveEntities(hass, overrides = {}) {
       map[role] = overrides[role];
       continue;
     }
-    const found = ids.find((id) => id.startsWith(rule.domain + ".") && id.endsWith(rule.suffix));
+    const suffixes = Array.isArray(rule.suffix) ? rule.suffix : [rule.suffix];
+    const found = ids.find((id) => id.startsWith(rule.domain + ".") && suffixes.some((s) => id.endsWith(s)));
     if (found) map[role] = found;
   }
   for (const k of Object.keys(overrides)) if (overrides[k]) map[k] = overrides[k];
@@ -137,10 +155,10 @@ function resolveEntities(hass, overrides = {}) {
 
 // Special functions. `option` = integration select value (Polish); `key` = i18n label.
 const SPECIAL_FUNCTIONS = [
-  { option: "Wietrzenie", key: "fn_airing", icon: "M14.5,17A2.5,2.5 0 0,1 12,19.5A2.5,2.5 0 0,1 9.5,17H11A1.5,1.5 0 0,0 12.5,18.5A1.5,1.5 0 0,0 14,17A1.5,1.5 0 0,0 12.5,15.5H2V14H12.5A3,3 0 0,1 15.5,17M18,10.5A3.5,3.5 0 0,0 21.5,7A3.5,3.5 0 0,0 18,3.5A3.5,3.5 0 0,0 14.5,7H16A2,2 0 0,1 18,5A2,2 0 0,1 20,7A2,2 0 0,1 18,9H2V10.5H18M18.5,12H2V13.5H18.5A2,2 0 0,1 20.5,15.5A2,2 0 0,1 18.5,17.5H17V19H18.5A3.5,3.5 0 0,0 22,15.5A3.5,3.5 0 0,0 18.5,12Z" },
-  { option: "Pusty Dom", key: "fn_away", icon: "M12,3L2,12H5V20H19V12H22L12,3M12,7.7C14.1,7.7 15.8,9.4 15.8,11.5C15.8,14.5 12,18 12,18C12,18 8.2,14.5 8.2,11.5C8.2,9.4 9.9,7.7 12,7.7M12,10A1.5,1.5 0 0,0 10.5,11.5A1.5,1.5 0 0,0 12,13A1.5,1.5 0 0,0 13.5,11.5A1.5,1.5 0 0,0 12,10Z" },
-  { option: "Okna", key: "fn_window", icon: "M20,3H4A2,2 0 0,0 2,5V19A2,2 0 0,0 4,21H20A2,2 0 0,0 22,19V5A2,2 0 0,0 20,3M20,19H13V17H11V19H4V5H11V7H13V5H20V19Z" },
-  { option: "Kominek", key: "fn_fireplace", icon: "M17,7C17,7 18,10 15,13C15,13 16,9 12,7C12,7 13,11 9,13C9,13 5,15 7,20C7,20 3,17 4,12C4,12 5,13 6,13C6,13 4,9 8,4C8,4 8,7 10,7C10,7 9,2 15,2C15,2 13,5 15,7C15,7 16,6 17,4C17,4 18,5 17,7Z" },
+  { option: "Wietrzenie", key: "fn_airing", icon: "M14.5,17A2.5,2.5 0 0,1 12,19.5A2.5,2.5 0 0,1 9.5,17H11A1.5,1.5 0 0,0 12.5,18.5A1.5,1.5 0 0,0 14,17A1.5,1.5 0 0,0 12.5,15.5H2V14H12.5A3,3 0 0,1 15.5,17M18,10.5A3.5,3.5 0 0,0 21.5,7A3.5,3.5 0 0,0 18,3.5A3.5,3.5 0 0,0 14.5,7H16A2,2 0 0,1 18,5A2,2 0 0,1 20,7A2,2 0 0,1 18,9H2V10.5H18M18.5,12H2V13.5H18.5A2,2 0 0,1 20.5,15.5A2,2 0 0,1 18.5,17.5H17V19H18.5A3.5,3.5 0 0,0 22,15.5A3.5,3.5 0 0,0 18.5,12Z", pct: "airing_pct", time: "airing_time" },
+  { option: "Pusty Dom", key: "fn_away", icon: "M12,3L2,12H5V20H19V12H22L12,3M12,7.7C14.1,7.7 15.8,9.4 15.8,11.5C15.8,14.5 12,18 12,18C12,18 8.2,14.5 8.2,11.5C8.2,9.4 9.9,7.7 12,7.7M12,10A1.5,1.5 0 0,0 10.5,11.5A1.5,1.5 0 0,0 12,13A1.5,1.5 0 0,0 13.5,11.5A1.5,1.5 0 0,0 12,10Z", pct: "away_pct" },
+  { option: "Okna", key: "fn_window", icon: "M20,3H4A2,2 0 0,0 2,5V19A2,2 0 0,0 4,21H20A2,2 0 0,0 22,19V5A2,2 0 0,0 20,3M20,19H13V17H11V19H4V5H11V7H13V5H20V19Z", pct: "window_pct" },
+  { option: "Kominek", key: "fn_fireplace", icon: "M17,7C17,7 18,10 15,13C15,13 16,9 12,7C12,7 13,11 9,13C9,13 5,15 7,20C7,20 3,17 4,12C4,12 5,13 6,13C6,13 4,9 8,4C8,4 8,7 10,7C10,7 9,2 15,2C15,2 13,5 15,7C15,7 16,6 17,4C17,4 18,5 17,7Z", pct: "fireplace_pct", time: "fireplace_time" },
 ];
 const SPECIAL_NONE = "Brak trybu";
 
@@ -181,6 +199,7 @@ const I18N = {
     efficiency: "Efficiency", recovery: "Recovery", cop: "COP",
     intake: "INTAKE", extract: "EXTRACT", exhaust: "EXHAUST", supply: "SUPPLY",
     warning: "Warning", error: "Error", schedule: "schedule", active: "active", off: "Off", target: "target",
+    cfg_comfort: "comf", cfg_min: "min", cfg_wear: "wear",
   },
   pl: {
     name: "Rekuperator", power: "Zasilanie", season: "Sezon", winter: "Zima", summer: "Lato",
@@ -194,6 +213,7 @@ const I18N = {
     efficiency: "Sprawność", recovery: "Odzysk", cop: "COP",
     intake: "CZERPNIA", extract: "WYWIEW", exhaust: "WYRZUTNIA", supply: "NAWIEW",
     warning: "Ostrzeżenie", error: "Błąd", schedule: "harmonogram", active: "aktywne", off: "Wyłączony", target: "cel",
+    cfg_comfort: "komf", cfg_min: "min", cfg_wear: "zużycie",
   },
 };
 
@@ -282,6 +302,21 @@ class ThesslaGreenCard extends HTMLElement {
     if (s === null && e === null) return null;
     if (s !== null && e !== null) return Math.round((s + e) / 2);
     return Math.round(s ?? e);
+  }
+  // Config summary shown under each mode tile (intensity %, + duration for timed
+  // modes; the manual/temporary setpoints stay visible on any mode).
+  _tileSub(kind, val, en) {
+    const pct = (id) => { const v = this._num(id); return v === null ? null : `${Math.round(v)}%`; };
+    const mins = (id) => { const v = this._num(id); return v === null ? null : `${Math.round(v)} min`; };
+    if (kind === "mode" && val === "manual") return pct(en.speed) || "";
+    if (kind === "mode" && val === "auto") { const p = this._effPct(); return p === null ? "" : `${p}%`; }
+    if (kind === "temp") return pct(en.speed_temp) || "";
+    if (kind === "special") {
+      const fn = SPECIAL_FUNCTIONS.find((f) => f.option === val);
+      if (!fn) return "";
+      return [fn.pct && pct(en[fn.pct]), fn.time && mins(en[fn.time])].filter(Boolean).join(" · ");
+    }
+    return "";
   }
   // Clip the solid filter copy from the top so its visible height = % of filter
   // life still left (100 − wear). Full when the wear sensor is absent.
@@ -378,7 +413,7 @@ class ThesslaGreenCard extends HTMLElement {
     // Unified mode tiles: Auto, Manual, visible specials, and (read-only) Temporary.
     const tile = (kind, val, icon, label, extra = "") =>
       `<button class="mtile ${extra}" data-kind="${kind}" data-val="${val}" title="${label}">
-         ${this._icon(icon)}<span>${label}</span></button>`;
+         ${this._icon(icon)}<span>${label}</span><small class="msub" data-el="msub"></small></button>`;
     const modeTiles =
       tile("mode", "auto", MODE_ICONS.auto, t("auto")) +
       tile("mode", "manual", MODE_ICONS.manual, t("manual")) +
@@ -427,8 +462,8 @@ class ThesslaGreenCard extends HTMLElement {
           }
 
           <div class="chips">
-            <button class="chip" data-el="bypass">${this._icon(ICONS.bypass)}<span>${t("bypass")}</span><b data-el="bypass-txt">—</b></button>
-            <button class="chip" data-el="filter">${this._icon(ICONS.filter)}<span>${t("filters")}</span><b data-el="filter-txt">—</b></button>
+            <button class="chip" data-el="bypass">${this._icon(ICONS.bypass)}<span>${t("bypass")}</span><span class="chip-val"><b data-el="bypass-txt">—</b><small class="chip-cfg" data-el="bypass-cfg"></small></span></button>
+            <button class="chip" data-el="filter">${this._icon(ICONS.filter)}<span>${t("filters")}</span><span class="chip-val"><b data-el="filter-txt">—</b><small class="chip-cfg" data-el="filter-cfg"></small></span></button>
           </div>
         </div>
       </ha-card>
@@ -456,8 +491,10 @@ class ThesslaGreenCard extends HTMLElement {
       mCop: q("m-cop"),
       bypass: q("bypass"),
       bypassTxt: q("bypass-txt"),
+      bypassCfg: q("bypass-cfg"),
       filter: q("filter"),
       filterTxt: q("filter-txt"),
+      filterCfg: q("filter-cfg"),
       dIntake: q("d-intake"),
       dExtract: q("d-extract"),
       dSupply: q("d-supply"),
@@ -847,6 +884,8 @@ class ThesslaGreenCard extends HTMLElement {
         tl.hidden = !active;
       }
       tl.classList.toggle("active", active);
+      const sub = tl.querySelector(".msub");
+      if (sub) sub.textContent = this._tileSub(kind, val, en);
     });
 
     // Status line: what currently controls the airflow (effective % + m³/h).
@@ -916,10 +955,12 @@ class ThesslaGreenCard extends HTMLElement {
     // When enabled but closed, show the season activation threshold in the hexagon
     // centre (e.g. "≥ 24°C") so it's clear when the bypass will open.
     if (e.bpThr) {
-      const thr = this._num(winter ? en.bypass_heat : en.bypass_cool);
-      const showThr = bypassEnabled && !bypassOpen && thr !== null;
+      // Show the KOMFORT setpoint (8190) — the temp the bypass aims for — not the
+      // outdoor free-heat/cool thresholds (4322/4323), which the 800v doesn't use.
+      const comf = this._num(en.temp_comfort);
+      const showThr = bypassEnabled && !bypassOpen && comf !== null;
       e.bpThr.style.display = showThr ? "" : "none";
-      if (e.bpThrT) e.bpThrT.textContent = showThr ? `≥ ${Math.round(thr)}°C` : "";
+      if (e.bpThrT) e.bpThrT.textContent = showThr ? `${t("target")} ${Math.round(comf)}°C` : "";
     }
     // Show BOTH facts at once: is the function enabled, and is the bypass open
     // right now. "Enabled · Closed" = armed but idle (will auto-open when the
@@ -935,6 +976,15 @@ class ThesslaGreenCard extends HTMLElement {
       : bypassOpen
       ? t("bypass_hint_open")
       : t("bypass_hint_closed");
+    // Config on the chip: KOMFORT setpoint + min outdoor temp the bypass needs.
+    if (e.bypassCfg) {
+      const comf = this._num(en.temp_comfort);
+      const bmin = this._num(en.bypass_min);
+      e.bypassCfg.textContent = bypassEnabled
+        ? [comf !== null ? `${t("cfg_comfort")} ${Math.round(comf)}°` : null,
+           bmin !== null ? `${t("cfg_min")} ${Math.round(bmin)}°` : null].filter(Boolean).join(" · ")
+        : "";
+    }
 
     // Metrics.
     if (this._config.show_metrics) {
@@ -951,6 +1001,10 @@ class ThesslaGreenCard extends HTMLElement {
     e.filter.classList.toggle("warn", filterAlarm);
     const fdays = this._num(en.filter_days); // fork: days to filter change (4660)
     e.filterTxt.textContent = filterAlarm ? t("replace") : fdays !== null ? `${Math.round(fdays)} d` : t("ok");
+    if (e.filterCfg) {
+      const wear = this._num(en.filter_wear_sup); // 4482: supply filter wear %
+      e.filterCfg.textContent = wear !== null ? `${t("cfg_wear")} ${Math.round(wear)}%` : "";
+    }
 
     this._applyPending();
   }
@@ -1046,6 +1100,9 @@ class ThesslaGreenCard extends HTMLElement {
                border:1px solid var(--divider-color); color:var(--secondary-text-color);
                font-size:.72rem; font-weight:600; line-height:1.15; text-align:center; transition:.15s; }
       .mtile .ic { width:24px; height:24px; }
+      .mtile .msub { font-size:.62rem; font-weight:600; opacity:.65; font-variant-numeric:tabular-nums; }
+      .mtile .msub:empty { display:none; }
+      .mtile.active .msub { opacity:.9; }
       .mtile:hover { border-color:var(--tg-accent); }
       .mtile.active { background:var(--tg-accent); color:var(--tg-on-accent); border-color:var(--tg-accent); }
       .mtile.active .ic { fill:var(--tg-on-accent); }
@@ -1083,8 +1140,11 @@ class ThesslaGreenCard extends HTMLElement {
               font-size:.85rem; color:var(--secondary-text-color); min-width:0; }
       .chip .ic { width:20px; height:20px; flex:0 0 auto; }
       .chip > span { flex:0 0 auto; }
-      .chip b { margin-left:auto; color:var(--primary-text-color); font-weight:600;
+      .chip b { color:var(--primary-text-color); font-weight:600;
                 min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .chip-val { margin-left:auto; display:flex; flex-direction:column; align-items:flex-end; line-height:1.15; min-width:0; }
+      .chip-cfg { font-size:.62rem; font-weight:600; opacity:.7; font-variant-numeric:tabular-nums; white-space:nowrap; }
+      .chip-cfg:empty { display:none; }
       .chip.on { background:var(--tg-accent); border-color:var(--tg-accent); color:var(--tg-on-accent); }
       .chip.on .ic, .chip.on b { fill:var(--tg-on-accent); color:var(--tg-on-accent); }
       .chip.warn { background:var(--tg-crit); border-color:var(--tg-crit); color:#fff; }
@@ -1105,7 +1165,7 @@ class ThesslaGreenCard extends HTMLElement {
   }
 }
 
-customElements.define("thessla-green-card", ThesslaGreenCard);
+if (!customElements.get("thessla-green-card")) customElements.define("thessla-green-card", ThesslaGreenCard);
 
 // ---------------------------------------------------------------------------
 //  Visual editor (native <ha-form>, localized)
@@ -1252,17 +1312,23 @@ class ThesslaGreenCardEditor extends HTMLElement {
 
   async _createForm() {
     await this._ensureForm();
-    this._form = document.createElement("ha-form");
-    this._form.computeLabel = (s) => this._ed(s.name) || s.name;
-    this._form.computeHelper = (s) => {
+    const form = document.createElement("ha-form");
+    form.computeLabel = (s) => this._ed(s.name) || s.name;
+    form.computeHelper = (s) => {
       if (ENTITY_RULES[s.name] && this._hass) {
         const auto = resolveEntities(this._hass, {}).map[s.name];
         return auto ? `Auto: ${auto}` : undefined;
       }
       return undefined;
     };
-    this._form.addEventListener("value-changed", (ev) => this._valueChanged(ev));
-    this.shadowRoot.appendChild(this._form);
+    form.addEventListener("value-changed", (ev) => this._valueChanged(ev));
+    // Populate BEFORE attaching so ha-form's first render never sees an
+    // undefined schema (ha-form does schema.map() with no guard).
+    form.hass = this._hass;
+    form.schema = this._schema();
+    form.data = this._data();
+    this._form = form;
+    this.shadowRoot.appendChild(form);
   }
 
   _valueChanged(ev) {
@@ -1288,7 +1354,7 @@ class ThesslaGreenCardEditor extends HTMLElement {
   }
 }
 
-customElements.define("thessla-green-card-editor", ThesslaGreenCardEditor);
+if (!customElements.get("thessla-green-card-editor")) customElements.define("thessla-green-card-editor", ThesslaGreenCardEditor);
 
 window.customCards = window.customCards || [];
 window.customCards.push({

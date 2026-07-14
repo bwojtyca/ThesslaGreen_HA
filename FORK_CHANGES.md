@@ -1,5 +1,16 @@
 # Fork changes — extra Modbus registers
 
+**v0.5.0-rc.2** — fixes + config on tiles (card **3.0.0-rc.2**).
+- Fixed the **visual editor** crash (`ha-form` got an undefined schema — now populated before attach).
+- Guarded `customElements.define` against double-load; ambient temp auto-detect now also matches the
+  legacy `temperatura_pcb` entity_id (renamed entities keep their old id).
+- Mode tiles show their **configured intensity** (Manual/Temporary setpoint, per-function %, + duration
+  for timed modes). Bypass chip shows **KOMFORT setpoint + min outdoor temp**; Filters chip shows
+  **wear % + days**.
+- Bypass now references the **KOMFORT temp (8190)**, not the outdoor free-heat/cool thresholds
+  (4322/4323) — the 800v uses mode 1 (damper 100%), so those and the differentiation % (4332/4333)
+  are not shown on the card.
+
 **v0.5.0-rc.1** — release candidate. Entity-name fixes + a full airflow-diagram overhaul
 (card **3.0.0-rc.1**).
 - Entity names corrected against the Modbus doc: sensor 22 "PCB" → **Temperatura otoczenia** (TO);
