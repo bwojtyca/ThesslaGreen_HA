@@ -1,5 +1,18 @@
 # Fork changes — extra Modbus registers
 
+**v0.5.0-rc.1** — release candidate. Entity-name fixes + a full airflow-diagram overhaul
+(card **3.0.0-rc.1**).
+- Entity names corrected against the Modbus doc: sensor 22 "PCB" → **Temperatura otoczenia** (TO);
+  4212 → "Temperatura zadana manualny"; removed the redundant `speedmanual` sensor (= number
+  "Prędkość"); coil 11 "Potwierdzenie pracy" → **Zasilanie wentylatorów** + new coil 10
+  **Potwierdzenie pracy centrali**; 8208 → **Zabezpieczenie termiczne nagrzewnicy** (was "FPX").
+- Card diagram rebuilt to match the manufacturer panel: rotated flat-top exchanger (rounded),
+  kinked/rounded duct lines with two chevrons each, filters + FPX + fans with proper hit-boxes and
+  grouped hover/click, per-fan % + m³/h, filter-wear icons, ambient (TO) probe, counter-flow core
+  pattern (fades when bypassed), and a bypass **ribbon** intake→supply with a knocked-out BYPASS
+  label — grey when armed-closed, intake→supply gradient when open.
+- New roles/entities used: `temp_ambient` (reg 22), `filter_wear_sup/ext` (4482/4483).
+
 **v0.4.1** — more read-only data, no card change. Device page now shows **firmware**
 (input regs 0/1/4 → e.g. `4.92.7`) and **serial number** (input regs 24-29) via `device_info`
 (merged onto the shared device by the generic sensors). New sensors: **filter wear %**

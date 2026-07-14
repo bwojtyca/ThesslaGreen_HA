@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "2.2.0";
+const TG_VERSION = "3.0.0-rc.1";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -39,6 +39,7 @@ const DEFAULT_ENTITIES = {
   temp_supply: `sensor.${DEV}rekuperator_temperatura_nawiew`,
   temp_extract: `sensor.${DEV}rekuperator_temperatura_wywiew`,
   temp_fpx: `sensor.${DEV}rekuperator_temperatura_za_fpx`,
+  temp_ambient: `sensor.${DEV}rekuperator_temperatura_otoczenia`, // reg 22: ambient (TO) probe
   flow_supply: `sensor.${DEV}rekuperator_strumien_nawiew`,
   flow_extract: `sensor.${DEV}rekuperator_strumien_wywiew`,
   efficiency: `sensor.${DEV}rekuperator_sprawnosc`,
@@ -53,6 +54,8 @@ const DEFAULT_ENTITIES = {
   bypass_status: `sensor.${DEV}rekuperator_status_bypass`, // 4330: true bypass status
   alarm_code: `sensor.${DEV}rekuperator_kod_alarmu`, // 4384: blocking S-alarm number
   filter_days: `sensor.${DEV}rekuperator_filtr_nawiew_dni`, // 4660: days to filter change
+  filter_wear_sup: `sensor.${DEV}rekuperator_filtr_nawiew_zuzycie`, // 4482: supply filter wear %
+  filter_wear_ext: `sensor.${DEV}rekuperator_filtr_wywiew_zuzycie`, // 4483: exhaust filter wear %
   target_temp: `sensor.${DEV}rekuperator_temperatura_zadana`, // 4212: target supply temp
   bypass_cool: `sensor.${DEV}rekuperator_bypass_prog_chlodzenie`, // 4323: free-cooling activation °C
   bypass_heat: `sensor.${DEV}rekuperator_bypass_prog_grzanie`, // 4322: free-heating activation °C
@@ -74,6 +77,7 @@ const ENTITY_RULES = {
   temp_supply: { domain: "sensor", suffix: "temperatura_nawiew" },
   temp_extract: { domain: "sensor", suffix: "temperatura_wywiew" },
   temp_fpx: { domain: "sensor", suffix: "temperatura_za_fpx" },
+  temp_ambient: { domain: "sensor", suffix: "temperatura_otoczenia" },
   flow_supply: { domain: "sensor", suffix: "strumien_nawiew" },
   flow_extract: { domain: "sensor", suffix: "strumien_wywiew" },
   efficiency: { domain: "sensor", suffix: "sprawnosc" },
@@ -87,6 +91,8 @@ const ENTITY_RULES = {
   bypass_status: { domain: "sensor", suffix: "status_bypass" },
   alarm_code: { domain: "sensor", suffix: "kod_alarmu" },
   filter_days: { domain: "sensor", suffix: "filtr_nawiew_dni" },
+  filter_wear_sup: { domain: "sensor", suffix: "filtr_nawiew_zuzycie" },
+  filter_wear_ext: { domain: "sensor", suffix: "filtr_wywiew_zuzycie" },
   target_temp: { domain: "sensor", suffix: "temperatura_zadana" },
   bypass_cool: { domain: "sensor", suffix: "bypass_prog_chlodzenie" },
   bypass_heat: { domain: "sensor", suffix: "bypass_prog_grzanie" },
@@ -277,6 +283,17 @@ class ThesslaGreenCard extends HTMLElement {
     if (s !== null && e !== null) return Math.round((s + e) / 2);
     return Math.round(s ?? e);
   }
+  // Clip the solid filter copy from the top so its visible height = % of filter
+  // life still left (100 − wear). Full when the wear sensor is absent.
+  // Box spans y 59–81 (cy 70 ± 11).
+  _setFilterWear(rect, wear) {
+    if (!rect) return;
+    const H = 22, B = 81;
+    const avail = wear === null ? 100 : 100 - Math.max(0, Math.min(100, wear));
+    const ah = (H * avail) / 100;
+    rect.setAttribute("y", B - ah);
+    rect.setAttribute("height", ah);
+  }
   _t(key) {
     const lang = pickLang(this._hass);
     return (I18N[lang] && I18N[lang][key]) ?? I18N.en[key] ?? key;
@@ -448,8 +465,16 @@ class ThesslaGreenCard extends HTMLElement {
       dFpx: q("d-fpx"),
       dFlowSup: q("d-flow-sup"),
       dFlowExt: q("d-flow-ext"),
+      dPctSup: q("d-pct-sup"),
+      dPctExt: q("d-pct-ext"),
+      filtFillSup: q("fmask-sup"),
+      filtFillExt: q("fmask-ext"),
+      dAmbient: q("d-ambient"),
+      probe: q("probe"),
       bp: q("bp"),
       bpThr: q("bp-thr"),
+      bpThrT: q("bp-thr-t"),
+      hx: q("hx"),
       hex: this.shadowRoot.querySelector(".hex"),
       flows: this.shadowRoot.querySelectorAll(".flow"),
     };
@@ -464,75 +489,180 @@ class ThesslaGreenCard extends HTMLElement {
   //  padding). Values carry data-mref → tap opens more-info (with history).
   _diagram() {
     const bg = "var(--tg-card-bg)";
-    const fan = (cx, cy, color, dir, mref) => {
+    // Fan icon only (no background mask, no group — the caller wraps it with its
+    // readouts in one interactive group, and the duct mask is a separate layer).
+    const fanIcon = (cx, cy, color, dir) => {
       const tri =
         dir === "r"
           ? `${cx - 5},${cy - 7} ${cx + 7},${cy} ${cx - 5},${cy + 7}`
           : `${cx + 5},${cy - 7} ${cx - 7},${cy} ${cx + 5},${cy + 7}`;
-      return `<g data-mref="${mref}">
-                <circle cx="${cx}" cy="${cy}" r="14" fill="${bg}"/>
-                <circle class="fan-c" cx="${cx}" cy="${cy}" r="14" style="stroke:${color}"/>
-                <polygon class="fan-t" points="${tri}" style="fill:${color}"/></g>`;
+      return `<circle class="fan-c" cx="${cx}" cy="${cy}" r="14" style="stroke:${color}"/>`
+           + `<polygon class="fan-t" points="${tri}" style="fill:${color}"/>`;
     };
-    const head = (x, y, color, dir) => {
-      const p = dir === "r" ? `${x - 9},${y - 6} ${x},${y} ${x - 9},${y + 6}` : `${x + 9},${y - 6} ${x},${y} ${x + 9},${y + 6}`;
-      return `<polygon points="${p}" style="fill:${color}"/>`;
+    // Air filter: a hatched box straddling the duct (before the fan). Drawn twice —
+    // a faint "ghost" (whole filter) and a solid copy clipped from the top in
+    // _update so its visible height = % of filter life STILL left. Clickable.
+    const fbox = (L, cx, R, T, cy, B) =>
+      `<rect class="filt-b" x="${L}" y="${T}" width="${R - L}" height="${B - T}"/>`
+      + `<line class="filt-b" x1="${L}" y1="${cy}" x2="${cx}" y2="${T}"/>`
+      + `<line class="filt-b" x1="${L}" y1="${B}" x2="${R}" y2="${T}"/>`
+      + `<line class="filt-b" x1="${cx}" y1="${B}" x2="${R}" y2="${cy}"/>`;
+    // Filter layers only (no background mask, no group). Caller wraps in an
+    // interactive .filt-grp; the duct mask is a separate always-opaque layer.
+    const filterLayers = (cx, cy, clipId, clipEl) => {
+      const w = 5, h = 11, L = cx - w, R = cx + w, T = cy - h, B = cy + h;
+      const box = fbox(L, cx, R, T, cy, B);
+      return `<clipPath id="${clipId}"><rect data-el="${clipEl}" x="${L - 1}" y="${T}" width="${2 * w + 2}" height="${2 * h}"/></clipPath>`
+        + `<g class="filt-ghost">${box}</g>`
+        + `<g class="filt-live" clip-path="url(#${clipId})">${box}</g>`;
     };
+    // Arrow centered on (x,y): a short shaft + chevron head (like "→"), always
+    // solid so the duct shows a line through the arrow even between flow dashes.
+    // Rotated `a`° to follow the flow (SVG rotate is clockwise; y-axis points down).
+    const arrow = (x, y, a, color) =>
+      `<path class="ah" d="M${x - 6},${y}L${x + 2},${y}M${x - 2},${y - 5}L${x + 6},${y}L${x - 2},${y + 5}" transform="rotate(${a} ${x} ${y})" style="stroke:${color}"/>`;
     const F = FLOW;
+    // Rounded-corner path from a point list. Closed → every corner rounded;
+    // open → the two endpoints stay sharp, inner corners rounded (radius r).
+    const roundPath = (pts, r, close) => {
+      const n = pts.length, seg = [];
+      const D = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+      const unit = (a, b) => { const dx = a.x - b.x, dy = a.y - b.y, L = Math.hypot(dx, dy) || 1; return [dx / L, dy / L]; };
+      for (let i = 0; i < n; i++) {
+        const c = pts[i];
+        if (!close && (i === 0 || i === n - 1)) {
+          seg.push(`${i === 0 ? "M" : "L"}${c.x.toFixed(1)},${c.y.toFixed(1)}`);
+          continue;
+        }
+        const p = pts[(i - 1 + n) % n], q = pts[(i + 1) % n];
+        const rr = Math.min(r, D(p, c) / 2, D(q, c) / 2); // clamp so short edges don't overlap
+        const [ax, ay] = unit(p, c), [bx, by] = unit(q, c);
+        seg.push(`${i === 0 ? "M" : "L"}${(c.x + ax * rr).toFixed(1)},${(c.y + ay * rr).toFixed(1)}`);
+        seg.push(`Q${c.x.toFixed(1)},${c.y.toFixed(1)} ${(c.x + bx * rr).toFixed(1)},${(c.y + by * rr).toFixed(1)}`);
+      }
+      return seg.join(" ") + (close ? " Z" : "");
+    };
+    // Flat-top hexagon, lightly rounded.
+    const hexPath = roundPath(
+      [{x:216,y:70},{x:264,y:70},{x:288,y:112},{x:264,y:154},{x:216,y:154},{x:192,y:112}], 5, true);
+    // Counter-flow core: 7 horizontal lines (top/bottom-edge width) whose left ends
+    // run parallel to the upper-left edge down to the lower-left edge, and right
+    // ends parallel to the lower-right edge up to the upper-right edge.
+    let corePath = "";
+    // Ys chosen so the VISIBLE gaps are equal: top border inner edge (70 + 3/2) →
+    // 7 lines (stroke 1) → bottom inner edge (154 − 3/2), split into 8 equal gaps.
+    // gap = ((152.5 − 71.5) − 7·1) / 8 = 9.25 → first line 81.25, step 10.25.
+    for (let k = 1; k <= 7; k++) {
+      const Y = 81.25 + (k - 1) * 10.25;
+      const sx = 216 - (2 / 7) * (154 - Y), sy = (Y + 154) / 2;
+      const ex = 264 + (2 / 7) * (Y - 70), ey = (Y + 70) / 2;
+      corePath += roundPath([{x:sx,y:sy},{x:216,y:Y},{x:264,y:Y},{x:ex,y:ey}], 3, false) + " ";
+    }
+    corePath = corePath.trim();
+    // Bypass ribbon: intake→supply, thin at the ends (diagonals at 60°, parallel
+    // to the hexagon's side edges), swelling into a labelled bar across the middle.
+    const RIBBON = roundPath([
+      { x: 205.3, y: 90.3 }, { x: 216, y: 104 }, { x: 264, y: 104 }, { x: 277.3, y: 132.3 },
+      { x: 274.7, y: 133.7 }, { x: 264, y: 120 }, { x: 216, y: 120 }, { x: 202.7, y: 91.7 },
+    ], 3, true);
+    // Ducts: horizontal run + a rounded kink into the exchanger's slanted face.
+    const DUCTS = [
+      [F.intake, [[6, 70], [192, 70], [204, 91]]],
+      [F.extract, [[474, 70], [288, 70], [276, 91]]],
+      [F.exhaust, [[204, 133], [192, 154], [6, 154]]],
+      [F.supply, [[276, 133], [288, 154], [474, 154]]],
+    ];
+    const ductD = (p) => roundPath(p.map(([x, y]) => ({ x, y })), 5, false);
     return `
       <div class="diagram">
         <svg viewBox="0 0 480 200" class="diag" role="img" aria-label="Airflow diagram">
-          <!-- Duct base tracks (edge-to-edge) -->
-          <line class="track" x1="6" y1="84" x2="190" y2="84"/>
-          <line class="track" x1="290" y1="84" x2="474" y2="84"/>
-          <line class="track" x1="190" y1="140" x2="6" y2="140"/>
-          <line class="track" x1="290" y1="140" x2="474" y2="140"/>
+          <defs>
+            <linearGradient id="bpgrad" gradientUnits="userSpaceOnUse" x1="210" y1="112" x2="270" y2="112">
+              <stop offset="0" stop-color="${F.intake}"/><stop offset="1" stop-color="${F.supply}"/>
+            </linearGradient>
+            <mask id="bpk" maskUnits="userSpaceOnUse" x="198" y="84" width="86" height="56">
+              <rect x="198" y="84" width="86" height="56" fill="#fff"/>
+              <text class="bp-cut" x="240" y="115" text-anchor="middle" fill="#000">BYPASS</text>
+            </mask>
+          </defs>
+          <!-- Duct base tracks: horizontal run level with the exchanger's flat
+               top/bottom, then a rounded 60° kink along its slanted face into it -->
+          ${DUCTS.map((d) => `<path class="track" d="${ductD(d[1])}" style="stroke:${d[0]}"/>`).join("\n          ")}
 
-          <!-- Animated flow pulses (direction = airflow) -->
-          <line class="flow" x1="10" y1="84" x2="176" y2="84" style="stroke:${F.intake}"/>
-          <line class="flow" x1="470" y1="84" x2="304" y2="84" style="stroke:${F.extract}"/>
-          <line class="flow" x1="186" y1="140" x2="16" y2="140" style="stroke:${F.exhaust}"/>
-          <line class="flow" x1="294" y1="140" x2="468" y2="140" style="stroke:${F.supply}"/>
+          <!-- Animated flow pulses (point order = airflow direction) -->
+          ${DUCTS.map((d) => `<path class="flow" d="${ductD(d[1])}" style="stroke:${d[0]}"/>`).join("\n          ")}
 
-          <!-- Arrowheads (top → into exchanger ~5px clear of it, bottom → out) -->
-          ${head(184, 84, F.intake, "r")}
-          ${head(296, 84, F.extract, "l")}
-          ${head(12, 140, F.exhaust, "l")}
-          ${head(468, 140, F.supply, "r")}
+          <!-- Two arrows per duct: one mid-slant by the exchanger, one at the duct end -->
+          ${arrow(198, 80.5, 60, F.intake)}   ${arrow(12, 70, 0, F.intake)}
+          ${arrow(282, 80.5, 120, F.extract)} ${arrow(468, 70, 180, F.extract)}
+          ${arrow(198, 143.5, 120, F.exhaust)} ${arrow(12, 154, 180, F.exhaust)}
+          ${arrow(282, 143.5, 60, F.supply)}  ${arrow(468, 154, 0, F.supply)}
 
-          <!-- Heat exchanger (outline only) -->
-          <polygon class="hex" points="240,58 296,88 296,136 240,166 184,136 184,88"/>
+          <!-- Counter-flow core pattern (heat-exchanger symbol), drawn UNDER the
+               outline; fades out when the bypass is actually open — set in _update -->
+          <path class="hx-core" data-el="hx" d="${corePath}"/>
+          <!-- Bypass route (intake → supply, skipping the core): drawn under the
+               outline but over the pattern; grey when closed, gradient when open -->
           <g class="bp" data-el="bp">
-            <rect class="bp-pill" x="214" y="102" width="52" height="20" rx="10"/>
-            <text class="bp-txt" x="240" y="116" text-anchor="middle">BYPASS</text>
+            <path class="bp-mask" d="${RIBBON}"/>
+            <path class="bp-band" d="${RIBBON}" mask="url(#bpk)"/>
+            <g class="bp-thr" data-el="bp-thr">
+              <rect class="bp-thr-bg" x="219" y="124.5" width="42" height="13" rx="3"/>
+              <text class="bp-thr-t" data-el="bp-thr-t" x="240" y="134" text-anchor="middle"></text>
+            </g>
           </g>
-          <text class="bp-thr" data-el="bp-thr" x="240" y="116" text-anchor="middle"></text>
+          <!-- Heat exchanger: flat-top hexagon (near-regular, lightly rounded) -->
+          <path class="hex" d="${hexPath}"/>
 
-          <!-- FPX pre-heater on the intake duct (masked from the flow line) -->
-          <rect x="134" y="76" width="32" height="16" fill="${bg}"/>
-          <polyline class="coil" points="138,84 142,78 150,90 158,78 162,84"/>
-          <text class="tag" x="150" y="72" text-anchor="middle">FPX</text>
-          <text class="sub" data-el="d-fpx" data-mref="temp_fpx" x="150" y="104" text-anchor="middle"></text>
+          <!-- Ambient (TO) sensor: a probe hanging under the exchanger -->
+          <g data-el="probe">
+            <path class="probe" d="M220,154 V170 q0,5 4,5 q4,0 4,-5 q0,-3 3,-3 H262"/>
+            <text class="temp" data-el="d-ambient" data-mref="temp_ambient" x="258" y="184" text-anchor="middle">—</text>
+          </g>
 
-          <!-- Fans (clickable → flow history) -->
-          ${fan(96, 84, F.intake, "r", "flow_supply")}
-          ${fan(384, 84, F.extract, "l", "flow_extract")}
+          <!-- Line masks: keep the duct + its animation from showing under the
+               icons. Always opaque, non-interactive (never dimmed on hover). -->
+          <circle cx="160" cy="70" r="14" fill="${bg}"/>
+          <circle cx="320" cy="70" r="14" fill="${bg}"/>
+          <rect x="92" y="58" width="31" height="24" fill="${bg}"/>
+          <rect x="356" y="58" width="12" height="24" fill="${bg}"/>
 
-          <!-- Real airflow (m³/h) under each fan — truthful in any mode -->
-          <text class="sub" data-el="d-flow-sup" data-mref="flow_supply" x="96" y="108" text-anchor="middle"></text>
-          <text class="sub" data-el="d-flow-ext" data-mref="flow_extract" x="384" y="108" text-anchor="middle"></text>
+          <!-- Intake duct (czerpnia): filter + FPX pre-heater grouped, then supply fan -->
+          <g data-mref="filter_wear_sup" class="filt-grp">${filterLayers(98, 70, "fclip-sup", "fmask-sup")}<rect class="hitbox" x="92" y="57" width="12" height="26"/></g>
+          <g data-mref="temp_fpx" class="grp">
+            <polyline class="coil" points="116,59 122,64 110,70 122,76 116,81"/>
+            <text class="tag" x="107" y="53" text-anchor="middle">FPX</text>
+            <text class="sub" data-el="d-fpx" x="107" y="97" text-anchor="middle"></text>
+            <rect class="hitbox" x="104" y="46" width="24" height="54"/>
+          </g>
+          <g data-mref="flow_supply" class="grp">
+            ${fanIcon(160, 70, F.intake, "r")}
+            <text class="sub" data-el="d-pct-sup"  x="160" y="97"  text-anchor="middle"></text>
+            <text class="sub" data-el="d-flow-sup" x="160" y="108" text-anchor="middle"></text>
+            <rect class="hitbox" x="142" y="54" width="36" height="62"/>
+          </g>
+
+          <!-- Extract duct (wywiew): filter, then extract fan -->
+          <g data-mref="filter_wear_ext" class="filt-grp">${filterLayers(362, 70, "fclip-ext", "fmask-ext")}<rect class="hitbox" x="356" y="57" width="12" height="26"/></g>
+          <g data-mref="flow_extract" class="grp">
+            ${fanIcon(320, 70, F.extract, "l")}
+            <text class="sub" data-el="d-pct-ext"  x="320" y="97"  text-anchor="middle"></text>
+            <text class="sub" data-el="d-flow-ext" x="320" y="108" text-anchor="middle"></text>
+            <rect class="hitbox" x="302" y="54" width="36" height="62"/>
+          </g>
 
           <!-- Stream names -->
-          <text class="fname" x="8"   y="38"  style="fill:${F.intake}"  text-anchor="start">${this._t("intake")}</text>
-          <text class="fname" x="472" y="38"  style="fill:${F.extract}" text-anchor="end">${this._t("extract")}</text>
-          <text class="fname" x="8"   y="184" style="fill:${F.exhaust}" text-anchor="start">${this._t("exhaust")}</text>
-          <text class="fname" x="472" y="184" style="fill:${F.supply}"  text-anchor="end">${this._t("supply")}</text>
+          <text class="fname" x="5"   y="58"  style="fill:${F.intake}"  text-anchor="start">${this._t("intake")}</text>
+          <text class="fname" x="475" y="58"  style="fill:${F.extract}" text-anchor="end">${this._t("extract")}</text>
+          <text class="fname" x="5"   y="176" style="fill:${F.exhaust}" text-anchor="start">${this._t("exhaust")}</text>
+          <text class="fname" x="475" y="176" style="fill:${F.supply}"  text-anchor="end">${this._t("supply")}</text>
 
-          <!-- Temperatures (clickable → history) -->
-          <text class="temp" data-el="d-intake"  data-mref="temp_intake"  x="60"  y="70"  text-anchor="middle">—</text>
-          <text class="temp" data-el="d-extract" data-mref="temp_extract" x="420" y="70"  text-anchor="middle">—</text>
-          <text class="temp" data-el="d-supply"  data-mref="temp_supply"  x="330" y="132" text-anchor="middle">—</text>
-          <text class="sub"  data-el="d-target"  data-mref="target_temp"  x="330" y="148" text-anchor="middle"></text>
+          <!-- Temperatures: intake/extract below the top ducts, supply above the
+               bottom-right duct (clickable → history) -->
+          <text class="temp" data-el="d-intake"  data-mref="temp_intake"  x="45"  y="89"  text-anchor="middle">—</text>
+          <text class="temp" data-el="d-extract" data-mref="temp_extract" x="435" y="89"  text-anchor="middle">—</text>
+          <text class="temp" data-el="d-supply"  data-mref="temp_supply"  x="435" y="146" text-anchor="middle">—</text>
+          <text class="sub"  data-el="d-target"  data-mref="target_temp"  x="435" y="134" text-anchor="middle"></text>
         </svg>
       </div>`;
   }
@@ -617,6 +747,12 @@ class ThesslaGreenCard extends HTMLElement {
     this._e.filter.onclick = () => this._moreInfo(en().filter_change);
     this.shadowRoot.querySelectorAll("[data-mref]").forEach((el) => {
       el.onclick = () => this._moreInfo(en()[el.dataset.mref]);
+    });
+    // Both filters read as one: hovering either highlights both.
+    const filts = this.shadowRoot.querySelectorAll(".filt-grp");
+    filts.forEach((f) => {
+      f.addEventListener("mouseenter", () => filts.forEach((g) => g.classList.add("hover")));
+      f.addEventListener("mouseleave", () => filts.forEach((g) => g.classList.remove("hover")));
     });
   }
 
@@ -750,6 +886,15 @@ class ThesslaGreenCard extends HTMLElement {
       e.dFpx.textContent = this._temp(en.temp_fpx);
       e.dFlowSup.textContent = this._flow(en.flow_supply);
       e.dFlowExt.textContent = this._flow(en.flow_extract);
+      const ps = this._num(en.fan_supply_pct); // fork: effective fan % (dac)
+      const pe = this._num(en.fan_extract_pct);
+      e.dPctSup.textContent = ps === null ? "" : `${Math.round(ps)}%`;
+      e.dPctExt.textContent = pe === null ? "" : `${Math.round(pe)}%`;
+      this._setFilterWear(e.filtFillSup, this._num(en.filter_wear_sup));
+      this._setFilterWear(e.filtFillExt, this._num(en.filter_wear_ext));
+      const amb = this._num(en.temp_ambient); // reg 22: ambient (TO) probe
+      if (e.probe) e.probe.style.display = amb === null ? "none" : "";
+      if (e.dAmbient) e.dAmbient.textContent = amb === null ? "" : `${amb.toFixed(1)}°C`;
       const tt = this._num(en.target_temp); // fork: target supply temp (4212)
       e.dTarget.textContent = tt === null ? "" : `${t("target")} ${tt.toFixed(1)}°C`;
     }
@@ -760,14 +905,21 @@ class ThesslaGreenCard extends HTMLElement {
     // fall back to the actuator coil (9) when the fork sensor isn't present.
     const bypStatus = this._num(en.bypass_status);
     const bypassOpen = bypStatus !== null ? bypStatus !== 0 : this._isOn(en.bypass_open);
-    if (e.bp) e.bp.classList.toggle("show", bypassOpen);
-    // When open, the heat exchanger is bypassed → show it as inactive (dashed/dim).
-    if (e.hex) e.hex.classList.toggle("bypass", bypassOpen);
+    // Show the bypass route when the function is armed; add "open" (colour
+    // gradient) when the damper is actually open, else it stays grey (closed).
+    if (e.bp) {
+      e.bp.classList.toggle("show", bypassEnabled);
+      e.bp.classList.toggle("open", bypassOpen);
+    }
+    // Core pattern fades out when the exchanger is actually bypassed.
+    if (e.hx) e.hx.style.opacity = bypassOpen ? "0.1" : "0.5";
     // When enabled but closed, show the season activation threshold in the hexagon
     // centre (e.g. "≥ 24°C") so it's clear when the bypass will open.
     if (e.bpThr) {
       const thr = this._num(winter ? en.bypass_heat : en.bypass_cool);
-      e.bpThr.textContent = bypassEnabled && !bypassOpen && thr !== null ? `≥ ${Math.round(thr)}°C` : "";
+      const showThr = bypassEnabled && !bypassOpen && thr !== null;
+      e.bpThr.style.display = showThr ? "" : "none";
+      if (e.bpThrT) e.bpThrT.textContent = showThr ? `≥ ${Math.round(thr)}°C` : "";
     }
     // Show BOTH facts at once: is the function enabled, and is the bypass open
     // right now. "Enabled · Closed" = armed but idle (will auto-open when the
@@ -854,22 +1006,33 @@ class ThesslaGreenCard extends HTMLElement {
       .diag { width:100%; height:auto; display:block; }
       .diag [data-mref] { cursor:pointer; }
       .diag [data-mref]:hover { opacity:.6; }
-      .diag .hex { fill:none; stroke:var(--tg-hex); stroke-width:4; stroke-linejoin:round; transition:.3s; }
-      .diag .hex.bypass { stroke-dasharray:7 6; opacity:.35; }
+      .diag .hex { fill:none; stroke:var(--tg-hex); stroke-width:3; stroke-linejoin:round; transition:.3s; }
+      .diag .hx-core { fill:none; stroke:var(--secondary-text-color); stroke-width:1; stroke-linecap:round; stroke-linejoin:round; opacity:.5; transition:opacity .3s; }
       .diag .bp { display:none; }
       .diag .bp.show { display:inline; }
-      .diag .track { stroke:var(--secondary-text-color); stroke-width:3; opacity:.2; stroke-linecap:round; }
+      .diag .ah { fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+      .diag .track { fill:none; stroke-width:2.2; opacity:.3; stroke-linecap:round; stroke-linejoin:round; }
       .diag .coil { fill:none; stroke:var(--secondary-text-color); stroke-width:2; stroke-linejoin:round; opacity:.7; }
+      .diag .filt-b { fill:none; stroke:var(--secondary-text-color); stroke-width:1.4; stroke-linecap:round; }
+      .diag .filt-ghost { opacity:.25; }
+      .diag .filt-live { opacity:1; }
+      .diag .filt-grp.hover { opacity:.55; }
+      /* Invisible hit target: makes the whole icon area (not just its strokes) hoverable/clickable */
+      .diag .hitbox { fill:transparent; pointer-events:all; }
+      .diag .probe { fill:none; stroke:var(--secondary-text-color); stroke-width:1.6; opacity:.5; stroke-linecap:round; stroke-linejoin:round; }
       .diag .fan-c { fill:none; stroke-width:2.5; }
-      .diag .bp-pill { fill:var(--tg-accent); }
-      .diag .bp-txt { fill:var(--tg-on-accent); font-size:11px; font-weight:800; letter-spacing:.5px; }
-      .diag .bp-thr { fill:var(--secondary-text-color); font-size:11px; font-weight:700; opacity:.85; }
-      .diag .fname { font-size:12px; font-weight:800; letter-spacing:1.2px; }
+      .diag .bp-mask { fill:var(--tg-card-bg); }
+      .diag .bp-band { fill:var(--secondary-text-color); opacity:.5; }
+      .diag .bp.open .bp-band { fill:url(#bpgrad); opacity:1; }
+      .diag .bp-cut { font-size:9px; font-weight:800; letter-spacing:.4px; }
+      .diag .bp-thr-bg { fill:var(--tg-card-bg); }
+      .diag .bp-thr-t { fill:var(--secondary-text-color); font-size:10px; font-weight:700; }
+      .diag .fname { font-size:12px; font-weight:500; letter-spacing:.3px; }
       .diag .temp { fill:var(--primary-text-color); font-size:15px; font-weight:700; font-variant-numeric:tabular-nums; }
       .diag .sub { fill:var(--secondary-text-color); font-size:10px; font-weight:600; font-variant-numeric:tabular-nums; }
-      .diag .tag { fill:var(--secondary-text-color); font-size:9px; font-weight:700; letter-spacing:1px; }
-      .flow { stroke-width:3; stroke-linecap:round; stroke-dasharray:14 16; animation:dash 1.6s linear infinite; }
-      @keyframes dash { to { stroke-dashoffset:-30; } }
+      .diag .tag { fill:var(--secondary-text-color); font-size:9px; font-weight:700; letter-spacing:.5px; }
+      .flow { fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; stroke-dasharray:12 14; animation:dash 1.6s linear infinite; }
+      @keyframes dash { to { stroke-dashoffset:-26; } }  /* = dash+gap → seamless loop */
 
       /* Status line */
       .status { text-align:center; font-size:.82rem; font-weight:600; color:var(--secondary-text-color);
