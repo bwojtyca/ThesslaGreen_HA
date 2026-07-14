@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "3.0.0-rc.13";
+const TG_VERSION = "3.0.0-rc.14";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -160,9 +160,9 @@ function resolveEntities(hass, overrides = {}) {
 // Special functions. `option` = integration select value (Polish); `key` = i18n label.
 const SPECIAL_FUNCTIONS = [
   { option: "Wietrzenie", key: "fn_airing", icon: "M14.5,17A2.5,2.5 0 0,1 12,19.5A2.5,2.5 0 0,1 9.5,17H11A1.5,1.5 0 0,0 12.5,18.5A1.5,1.5 0 0,0 14,17A1.5,1.5 0 0,0 12.5,15.5H2V14H12.5A3,3 0 0,1 15.5,17M18,10.5A3.5,3.5 0 0,0 21.5,7A3.5,3.5 0 0,0 18,3.5A3.5,3.5 0 0,0 14.5,7H16A2,2 0 0,1 18,5A2,2 0 0,1 20,7A2,2 0 0,1 18,9H2V10.5H18M18.5,12H2V13.5H18.5A2,2 0 0,1 20.5,15.5A2,2 0 0,1 18.5,17.5H17V19H18.5A3.5,3.5 0 0,0 22,15.5A3.5,3.5 0 0,0 18.5,12Z", pct: "airing_pct", time: "airing_time", max: 150 },
-  { option: "Pusty Dom", key: "fn_away", icon: "M12,3L2,12H5V20H19V12H22L12,3M12,7.7C14.1,7.7 15.8,9.4 15.8,11.5C15.8,14.5 12,18 12,18C12,18 8.2,14.5 8.2,11.5C8.2,9.4 9.9,7.7 12,7.7M12,10A1.5,1.5 0 0,0 10.5,11.5A1.5,1.5 0 0,0 12,13A1.5,1.5 0 0,0 13.5,11.5A1.5,1.5 0 0,0 12,10Z", pct: "away_pct", max: 50 },
-  { option: "Okna", key: "fn_window", icon: "M20,3H4A2,2 0 0,0 2,5V19A2,2 0 0,0 4,21H20A2,2 0 0,0 22,19V5A2,2 0 0,0 20,3M20,19H13V17H11V19H4V5H11V7H13V5H20V19Z", pct: "window_pct", max: 100 },
-  { option: "Kominek", key: "fn_fireplace", icon: "M17,7C17,7 18,10 15,13C15,13 16,9 12,7C12,7 13,11 9,13C9,13 5,15 7,20C7,20 3,17 4,12C4,12 5,13 6,13C6,13 4,9 8,4C8,4 8,7 10,7C10,7 9,2 15,2C15,2 13,5 15,7C15,7 16,6 17,4C17,4 18,5 17,7Z", pct: "fireplace_pct", time: "fireplace_time", max: 100 },
+  { option: "Pusty Dom", key: "fn_away", icon: "m24 13l-4 4v-3h-9v-2h9V9zM4 20v-8H1l10-9l7 6.3v.7h-2.21L11 5.69l-5 4.5V18h10v-2h2v4z", pct: "away_pct", max: 50 },
+  { option: "Okna", key: "fn_window", icon: "M21 20V2H3v18H1v3h22v-3M19 4v7h-2V4M5 4h2v7H5m0 9v-7h2v7m2 0V4h6v16m2 0v-7h2v7Z", pct: "window_pct", max: 100 },
+  { option: "Kominek", key: "fn_fireplace", icon: "M22 22H2v-2h20zm0-16H2V3h20zm-2 1v12h-3v-8s-2.5-1-5-1s-5 1-5 1v8H4V7zm-5.5 7.67h-.03l.34.55l.06.12c.42 1.01.13 2.16-.66 2.9c-.71.66-1.71.83-2.63.71c-.87-.11-1.68-.66-2.13-1.42c-.15-.23-.26-.5-.32-.76L9 16.11c-.04-.96.34-1.97 1.06-2.57c-.33.72-.25 1.62.24 2.25l.06.08c.08.07.19.1.28.05c.09-.03.16-.12.16-.22l-.04-.14c-.53-1.39-.08-3.01 1.03-3.93c.31-.25.71-.48 1.08-.58c-.41.82-.26 1.88.38 2.52l.89.73zm-1.39 2.77c.26-.24.42-.64.39-1v-.19c-.12-.6-.65-.79-1-1.25l-.24-.45c-.13.3-.14.58-.09.91c.06.34.2.63.12.98c-.09.39-.39.78-.92.91c.3.29.78.52 1.27.36z", pct: "fireplace_pct", time: "fireplace_time", max: 100 },
 ];
 const SPECIAL_NONE = "Brak trybu";
 
@@ -179,7 +179,7 @@ const STATS = [
 // Base-mode tiles (register 4208). Temporary is read-only (integration can't set it).
 const MODE_ICONS = {
   auto: "M15,13H16.5V15.82L18.94,17.23L18.19,18.53L15,16.69V13M19,8H5V19H9.67C9.24,18.09 9,17.07 9,16A7,7 0 0,1 16,9C17.07,9 18.09,9.24 19,9.67V8M5,21C3.89,21 3,20.1 3,19V5C3,3.89 3.89,3 5,3H6V1H8V3H16V1H18V3H19A2,2 0 0,1 21,5V11.1C22.24,12.36 23,14.09 23,16A7,7 0 0,1 16,23C14.09,23 12.36,22.24 11.1,21H5M16,11.15A4.85,4.85 0 0,0 11.15,16C11.15,18.68 13.32,20.85 16,20.85A4.85,4.85 0 0,0 20.85,16C20.85,13.32 18.68,11.15 16,11.15Z",
-  manual: "M8 13C6.14 13 4.59 14.28 4.14 16H2V18H4.14C4.59 19.72 6.14 21 8 21S11.41 19.72 11.86 18H22V16H11.86C11.41 14.28 9.86 13 8 13M8 19C6.9 19 6 18.1 6 17C6 15.9 6.9 15 8 15S10 15.9 10 17C10 18.1 9.1 19 8 19M19.86 6C19.41 4.28 17.86 3 16 3S12.59 4.28 12.14 6H2V8H12.14C12.59 9.72 14.14 11 16 11S19.41 9.72 19.86 8H22V6H19.86M16 9C14.9 9 14 8.1 14 7C14 5.9 14.9 5 16 5S18 5.9 18 7C18 8.1 17.1 9 16 9Z",
+  manual: "M13 24c-3.26 0-6.19-2-7.4-5l-3.03-7.63a1 1 0 0 1 1.24-1.32l.79.26c.56.19 1.02.61 1.24 1.16L7.25 15H8V3.25a1.25 1.25 0 0 1 2.5 0V12h1V1.25a1.25 1.25 0 0 1 2.5 0V12h1V2.75a1.25 1.25 0 0 1 2.5 0V12h1V5.75a1.25 1.25 0 0 1 2.5 0V16c0 4.42-3.58 8-8 8",
   temporary: "M6,2V8H6V8L10,12L6,16V16H6V22H18V16H18V16L14,12L18,8V8H18V2H6M16,16.5V20H8V16.5L12,12.5L16,16.5M12,11.5L8,7.5V4H16V7.5L12,11.5Z",
 };
 
@@ -188,7 +188,7 @@ const ICONS = {
   snow: "M20.79,13.95L18.46,14.57L16.46,13.44V10.56L18.46,9.43L20.79,10.05L21.31,8.12L19.54,7.65L20,5.88L18.07,5.36L17.45,7.69L15.45,8.82L13,7.38V5.12L14.71,3.41L13.29,2L12,3.29L10.71,2L9.29,3.41L11,5.12V7.38L8.5,8.82L6.5,7.69L5.88,5.36L3.95,5.88L4.41,7.65L2.64,8.12L3.16,10.05L5.5,9.43L7.5,10.56V13.44L5.5,14.57L3.16,13.95L2.64,15.88L4.41,16.35L3.95,18.12L5.88,18.64L6.5,16.31L8.5,15.18L11,16.62V18.88L9.29,20.59L10.71,22L12,20.71L13.29,22L14.71,20.59L13,18.88V16.62L15.5,15.18L17.45,16.31L18.07,18.64L20,18.12L19.54,16.35L21.31,15.88L20.79,13.95M9.5,10.56L12,9.11L14.5,10.56V13.44L12,14.89L9.5,13.44V10.56Z",
   sun: "M12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,2L14.39,5.42C13.65,5.15 12.84,5 12,5C11.16,5 10.35,5.15 9.61,5.42L12,2M3.34,7L7.5,6.65C6.9,7.16 6.36,7.78 5.94,8.5C5.5,9.24 5.25,10 5.11,10.79L3.34,7M3.36,17L5.12,13.23C5.26,14 5.53,14.78 5.95,15.5C6.37,16.24 6.91,16.86 7.5,17.37L3.36,17M20.65,7L18.88,10.79C18.74,10 18.47,9.23 18.05,8.5C17.63,7.78 17.1,7.15 16.5,6.64L20.65,7M20.64,17L16.5,17.36C17.09,16.85 17.62,16.22 18.04,15.5C18.46,14.77 18.73,14 18.87,13.21L20.64,17M12,22L9.59,18.56C10.33,18.83 11.14,19 12,19C12.82,19 13.63,18.83 14.37,18.56L12,22Z",
   filter: "M12,3A9,9 0 0,0 3,12H5A7,7 0 0,1 12,5A7,7 0 0,1 19,12H21A9,9 0 0,0 12,3M12,7A5,5 0 0,0 7,12H9A3,3 0 0,1 12,9A3,3 0 0,1 15,12H17A5,5 0 0,0 12,7M11,13V19H13V13H11M11,20V22H13V20H11Z",
-  bypass: "M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4C14.4,4 16.5,5.2 17.8,7L7,17.8C5.2,16.5 4,14.4 4,12A8,8 0 0,1 12,4M12,20C9.6,20 7.5,18.8 6.2,17L17,6.2C18.8,7.5 20,9.6 20,12A8,8 0 0,1 12,20Z",
+  bypass: "M12 14a2 2 0 0 1 2 2a2 2 0 0 1-2 2a2 2 0 0 1-2-2a2 2 0 0 1 2-2m11.46-5.14l-1.59 6.89L15 14.16l3.8-2.38A7.97 7.97 0 0 0 12 8c-3.95 0-7.23 2.86-7.88 6.63l-1.97-.35C2.96 9.58 7.06 6 12 6c3.58 0 6.73 1.89 8.5 4.72z",
   alert: "M13,14H11V10H13M13,18H11V16H13M1,21H23L12,2L1,21Z",
 };
 
@@ -266,6 +266,7 @@ class ThesslaGreenCard extends HTMLElement {
       name: config.name,
       show_metrics: config.show_metrics !== false,
       show_diagram: config.show_diagram !== false,
+      show_bypass: config.show_bypass !== false,
       functions: Array.isArray(config.functions) ? config.functions : null,
       metrics: Array.isArray(config.metrics) ? config.metrics : null,
       accent: config.accent === "thessla" ? "thessla" : "theme",
@@ -484,13 +485,24 @@ class ThesslaGreenCard extends HTMLElement {
     // Stats section (borderless, configurable). `filters` gets an extra sub-line.
     const statKeys = c.metrics || STATS.map((s) => s.key);
     const stats = STATS.filter((s) => statKeys.includes(s.key));
-    const statIds = { efficiency: "st-eff", recovery: "st-pow", cop: "st-cop", filters: "st-filter" };
+    const statIds = { efficiency: "st-eff", recovery: "st-pow", cop: "st-cop" };
+    // Label on top, value(s) below. Only the value(s) are clickable — not the box.
+    // Filters carries three: days-to-change + supply/exhaust wear, each its own link.
     const statCell = (s) =>
-      `<button class="stat"${s.key === "filters" ? ' data-el="stat-filters"' : ""} data-mref="${s.mref}">
-         <span class="sv" data-el="${statIds[s.key]}">—</span>
-         <span class="sl">${t(s.label)}</span>
-         ${s.key === "filters" ? '<span class="ss" data-el="st-filter-sub"></span>' : ""}
-       </button>`;
+      s.key === "filters"
+        ? `<div class="stat stat-filters" data-el="stat-filters">
+             <span class="sl">${t(s.label)}</span>
+             <button class="sv" data-el="st-filter" data-mref="filter_change">—</button>
+             <span class="ss">
+               <button data-el="st-wear-sup" data-mref="filter_wear_sup">—</button>
+               <span class="ss-sep">/</span>
+               <button data-el="st-wear-ext" data-mref="filter_wear_ext">—</button>
+             </span>
+           </div>`
+        : `<div class="stat">
+             <span class="sl">${t(s.label)}</span>
+             <button class="sv" data-el="${statIds[s.key]}" data-mref="${s.mref}">—</button>
+           </div>`;
     const statsHtml =
       c.show_metrics && stats.length
         ? `<div class="stats" data-el="stats">${stats.map(statCell).join("")}</div>`
@@ -529,13 +541,17 @@ class ThesslaGreenCard extends HTMLElement {
 
           <!-- Bypass: its own section — toggle (enable/disable the function) plus
                readable state (open / closed / disabled) and its config. -->
-          <button class="bypass" data-el="bypass">
+          <button class="bypass" data-el="bypass"${c.show_bypass ? "" : " hidden"}>
             <span class="bypass-ic">${this._icon(ICONS.bypass)}</span>
             <span class="bypass-info">
-              <span class="bypass-title">${t("bypass")}</span>
-              <span class="bypass-state" data-el="bypass-txt">—</span>
-              <span class="bypass-reason" data-el="bypass-reason"></span>
-              <span class="bypass-cfg" data-el="bypass-cfg"></span>
+              <span class="bypass-row">
+                <span class="bypass-title">${t("bypass")}</span>
+                <span class="bypass-cfg" data-el="bypass-cfg"></span>
+              </span>
+              <span class="bypass-row">
+                <span class="bypass-state" data-el="bypass-txt">—</span>
+                <span class="bypass-reason" data-el="bypass-reason"></span>
+              </span>
             </span>
             <span class="bypass-sw" aria-hidden="true"><i></i></span>
           </button>
@@ -564,7 +580,8 @@ class ThesslaGreenCard extends HTMLElement {
       stPow: q("st-pow"),
       stCop: q("st-cop"),
       stFilter: q("st-filter"),
-      stFilterSub: q("st-filter-sub"),
+      stWearSup: q("st-wear-sup"),
+      stWearExt: q("st-wear-ext"),
       statFilters: q("stat-filters"),
       bypass: q("bypass"),
       bypassTxt: q("bypass-txt"),
@@ -1144,11 +1161,9 @@ class ThesslaGreenCard extends HTMLElement {
       if (e.statFilters) e.statFilters.classList.toggle("warn", filterAlarm);
       const fdays = this._num(en.filter_days); // 4660: days to filter change
       e.stFilter.textContent = filterAlarm ? t("replace") : fdays !== null ? `${Math.round(fdays)} d` : t("ok");
-      if (e.stFilterSub) {
-        const ws = this._num(en.filter_wear_sup), we = this._num(en.filter_wear_ext); // 4482 / 4483 wear %
-        const parts = [ws, we].filter((v) => v !== null).map((v) => `${Math.round(v)}%`);
-        e.stFilterSub.textContent = parts.length ? parts.join(" / ") : "";
-      }
+      const ws = this._num(en.filter_wear_sup), we = this._num(en.filter_wear_ext); // 4482 / 4483 wear %
+      if (e.stWearSup) e.stWearSup.textContent = ws === null ? "—" : `${Math.round(ws)}%`;
+      if (e.stWearExt) e.stWearExt.textContent = we === null ? "—" : `${Math.round(we)}%`;
     }
 
     this._applyPending();
@@ -1289,20 +1304,22 @@ class ThesslaGreenCard extends HTMLElement {
                    color:var(--primary-text-color); text-shadow:0 1px 2px rgba(0,0,0,.18); pointer-events:none; }
       .speed-track.pending .speed-cap { visibility:hidden; }  /* spinner takes the centre */
 
-      /* Bypass — its own section: icon + title/state/config + a toggle switch */
+      /* Bypass — its own section: icon + 2 rows (title·cfg / state·reason) + toggle */
       .bypass { display:flex; align-items:center; gap:12px; width:100%; text-align:left;
-                padding:12px 14px; border-radius:14px; background:var(--secondary-background-color); transition:.15s; }
+                padding:10px 14px; border-radius:14px; background:var(--secondary-background-color); transition:.15s; }
+      .bypass[hidden] { display:none; }
       .bypass-ic { flex:0 0 auto; color:var(--secondary-text-color); display:grid; place-items:center; }
       .bypass-ic .ic { width:24px; height:24px; fill:currentColor; }
       .bypass-info { display:flex; flex-direction:column; gap:1px; flex:1; min-width:0; }
-      .bypass-title { font-size:.95rem; font-weight:600; color:var(--primary-text-color); }
-      .bypass-state { font-size:.78rem; color:var(--secondary-text-color); }
+      .bypass-row { display:flex; align-items:baseline; gap:8px; min-width:0; }
+      .bypass-title { font-size:.95rem; font-weight:600; color:var(--primary-text-color); flex:0 0 auto; }
+      .bypass-state { font-size:.78rem; color:var(--secondary-text-color); flex:0 0 auto; }
       .bypass-cfg { font-size:.68rem; color:var(--secondary-text-color); opacity:.8;
                     font-variant-numeric:tabular-nums; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
       .bypass-cfg:empty { display:none; }
       /* Derived reason the bypass is held shut (highlighted). */
       .bypass-reason { font-size:.72rem; font-weight:600; color:var(--tg-warn);
-                       white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+                       white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
       .bypass-reason:empty { display:none; }
       .bypass.open .bypass-reason { display:none; }
       .bypass-sw { flex:0 0 auto; width:42px; height:24px; border-radius:999px;
@@ -1314,17 +1331,21 @@ class ThesslaGreenCard extends HTMLElement {
       .bypass.on .bypass-ic { color:var(--tg-accent); }
       .bypass.open .bypass-state { color:var(--tg-accent); font-weight:600; }
 
-      /* Stats — light, borderless readouts separated by hairlines (not buttons) */
+      /* Stats — light, borderless readouts (hairline-separated). Label on top;
+         only the value(s) are clickable, not the whole box. */
       .stats { display:flex; align-items:stretch; }
       .stat { flex:1 1 0; min-width:0; display:flex; flex-direction:column; align-items:center;
-              justify-content:center; gap:2px; padding:8px 6px; border-radius:10px; transition:.15s; }
+              justify-content:flex-start; gap:3px; padding:6px 6px; }
       .stat + .stat { border-left:1px solid var(--divider-color); }
-      .stat:hover { background:var(--secondary-background-color); }
+      .stat .sl { font-size:.62rem; color:var(--secondary-text-color); text-transform:uppercase; letter-spacing:.5px; }
       .stat .sv { font-size:1.2rem; font-weight:700; color:var(--tg-accent-d);
-                  font-variant-numeric:tabular-nums; line-height:1.1; }
-      .stat .sl { font-size:.64rem; color:var(--secondary-text-color); text-transform:uppercase; letter-spacing:.5px; }
-      .stat .ss { font-size:.62rem; color:var(--secondary-text-color); font-variant-numeric:tabular-nums; }
-      .stat .ss:empty { display:none; }
+                  font-variant-numeric:tabular-nums; line-height:1.1; cursor:pointer; transition:.15s; }
+      .stat .sv:hover { opacity:.6; }
+      .stat .ss { display:flex; align-items:baseline; gap:5px; font-size:.68rem;
+                  color:var(--secondary-text-color); font-variant-numeric:tabular-nums; }
+      .stat .ss button { font:inherit; color:inherit; cursor:pointer; transition:.15s; }
+      .stat .ss button:hover { color:var(--tg-accent-d); opacity:.8; }
+      .stat .ss-sep { opacity:.45; }
       .stat.warn .sv { color:var(--tg-crit); }
 
       /* Optimistic-state locking */
@@ -1356,7 +1377,7 @@ const EDITOR_ROLES = [
 const EDITOR_I18N = {
   en: {
     name: "Name", show_diagram: "Airflow diagram",
-    show_metrics: "Statistics section", functions: "Special functions shown", metrics: "Statistics shown",
+    show_bypass: "Bypass section", show_metrics: "Statistics section", functions: "Special functions shown", metrics: "Statistics shown",
     accent: "Colours", accent_theme: "Home Assistant theme", accent_thessla: "ThesslaGreen",
     entities: "Entities (override auto-detection)",
     power: "Power (switch)", mode_switch: "Mode Auto/Manual (switch)", mode_state: "Mode state (sensor)",
@@ -1371,7 +1392,7 @@ const EDITOR_I18N = {
   },
   pl: {
     name: "Nazwa", show_diagram: "Schemat przepływu",
-    show_metrics: "Sekcja statystyk", functions: "Widoczne funkcje specjalne", metrics: "Widoczne statystyki",
+    show_bypass: "Sekcja bypass", show_metrics: "Sekcja statystyk", functions: "Widoczne funkcje specjalne", metrics: "Widoczne statystyki",
     accent: "Kolory", accent_theme: "Motyw Home Assistant", accent_thessla: "ThesslaGreen",
     entities: "Encje (nadpisanie auto-wykrywania)",
     power: "Zasilanie (switch)", mode_switch: "Tryb Auto/Ręczny (switch)", mode_state: "Stan trybu (sensor)",
@@ -1427,6 +1448,7 @@ class ThesslaGreenCardEditor extends HTMLElement {
     return [
       { name: "name", selector: { text: {} } },
       { name: "show_diagram", selector: { boolean: {} } },
+      { name: "show_bypass", selector: { boolean: {} } },
       { name: "show_metrics", selector: { boolean: {} } },
       {
         name: "accent",
@@ -1478,6 +1500,7 @@ class ThesslaGreenCardEditor extends HTMLElement {
     return {
       name: c.name ?? "",
       show_diagram: c.show_diagram !== false,
+      show_bypass: c.show_bypass !== false,
       show_metrics: c.show_metrics !== false,
       accent: c.accent === "thessla" ? "thessla" : "theme",
       functions: Array.isArray(c.functions) ? c.functions : SPECIAL_FUNCTIONS.map((f) => f.option),
@@ -1525,6 +1548,7 @@ class ThesslaGreenCardEditor extends HTMLElement {
     const out = { type: this._config.type || "custom:thessla-green-card" };
     if (value.name) out.name = value.name;
     if (value.show_diagram === false) out.show_diagram = false;
+    if (value.show_bypass === false) out.show_bypass = false;
     if (value.show_metrics === false) out.show_metrics = false;
     if (value.accent === "thessla") out.accent = "thessla";
     const allFns = SPECIAL_FUNCTIONS.map((f) => f.option);

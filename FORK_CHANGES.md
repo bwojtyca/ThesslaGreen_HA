@@ -1,5 +1,14 @@
 # Fork changes — extra Modbus registers
 
+**v0.5.0-rc.16** — icon + layout polish (card **3.0.0-rc.14**).
+- **Bypass section** trimmed to **two rows** (config now sits next to the title; state + reason below)
+  and given a clearer icon (a "step-over" arc = air routed around the exchanger). New **`show_bypass`**
+  config toggle (editor: *Bypass section*) to hide the whole section.
+- **Mode icons** reworked to match function: Manual → hand, Empty-house → house-with-exit-arrow,
+  Open-window → open sash, Fireplace → fireplace (Airing kept — you liked it).
+- **Statistics** restyled: label **above** the value. Filters now shows **three tappable values** —
+  days-to-change and both wear %s — each opening its own entity (the box itself is no longer a button).
+
 **v0.5.0-rc.15** — bottom-section redesign + mode/bypass detail (card **3.0.0-rc.13**).
 - **Mode tiles** are now strictly equal width (`minmax(0,1fr)`), so a long label like "Wietrzenie"
   no longer stretches its column; long words wrap on narrow screens.
