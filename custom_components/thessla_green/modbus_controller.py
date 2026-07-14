@@ -76,7 +76,7 @@ class ThesslaGreenModbusController:
             (4662, 1),   # 4662 filter_exhaust_date_limit → days to exhaust filter change
             (8190, 1),   # 8190 requiredTemp → KOMFORT target temp (x0.5 °C)
             (4321, 3),   # 4321 minBypassTemp + 4322 free-heating + 4323 free-cooling (x0.5 °C) — read-only config
-            (4331, 3),   # 4331 bypassUserMode + 4332 flow-diff % + 4333 intensity % — read-only config
+            (4331, 1),   # 4331 bypassUserMode (read-only; 4332/4333 are mode-2/3 only — not exposed)
             (4228, 1),   # 4228 fireplaceSupplyCoef → "Kominek" intensity (%)
             (4237, 1),   # 4237 fireplaceModeTime → "Kominek" duration (min)
             (4232, 1),   # 4232 emptyHouseCoef → "Pusty dom" intensity (%)

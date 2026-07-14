@@ -54,8 +54,8 @@ SENSORS = [
     {"name": "Rekuperator Bypass próg grzanie", "address": 4322, "input_type": "holding", "scale": 0.5, "precision": 1, "unit": UnitOfTemperature.CELSIUS, "icon": "mdi:thermometer-plus"},
     {"name": "Rekuperator Bypass próg chłodzenie", "address": 4323, "input_type": "holding", "scale": 0.5, "precision": 1, "unit": UnitOfTemperature.CELSIUS, "icon": "mdi:thermometer-minus"},
     {"name": "Rekuperator Bypass tryb", "address": 4331, "input_type": "holding", "icon": "mdi:tune-variant"},
-    {"name": "Rekuperator Bypass różnicowanie", "address": 4332, "input_type": "holding", "unit": "%", "icon": "mdi:scale-balance"},
-    {"name": "Rekuperator Bypass intensywność", "address": 4333, "input_type": "holding", "unit": "%", "icon": "mdi:fan"},
+    # 4332 (różnicowanie) / 4333 (intensywność) dotyczą trybu bypassu 2/3 — 800v używa
+    # trybu 1 (przepustnica 100%), więc byłyby mylące ("50%"); nie wystawiamy ich.
     # Konfiguracja funkcji specjalnych (read-only)
     {"name": "Rekuperator Kominek intensywność", "address": 4228, "input_type": "holding", "unit": "%", "icon": "mdi:fireplace"},
     {"name": "Rekuperator Kominek czas", "address": 4237, "input_type": "holding", "unit": "min", "icon": "mdi:timer-outline"},
