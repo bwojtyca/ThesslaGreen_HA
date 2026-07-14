@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "2.1.4";
+const TG_VERSION = "2.2.0";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -54,6 +54,9 @@ const DEFAULT_ENTITIES = {
   alarm_code: `sensor.${DEV}rekuperator_kod_alarmu`, // 4384: blocking S-alarm number
   filter_days: `sensor.${DEV}rekuperator_filtr_nawiew_dni`, // 4660: days to filter change
   target_temp: `sensor.${DEV}rekuperator_temperatura_zadana`, // 4212: target supply temp
+  bypass_cool: `sensor.${DEV}rekuperator_bypass_prog_chlodzenie`, // 4323: free-cooling activation °C
+  bypass_heat: `sensor.${DEV}rekuperator_bypass_prog_grzanie`, // 4322: free-heating activation °C
+  bypass_min: `sensor.${DEV}rekuperator_bypass_prog_min`, // 4321: min bypass temp °C
 };
 
 const ENTITY_RULES = {
@@ -85,6 +88,9 @@ const ENTITY_RULES = {
   alarm_code: { domain: "sensor", suffix: "kod_alarmu" },
   filter_days: { domain: "sensor", suffix: "filtr_nawiew_dni" },
   target_temp: { domain: "sensor", suffix: "temperatura_zadana" },
+  bypass_cool: { domain: "sensor", suffix: "bypass_prog_chlodzenie" },
+  bypass_heat: { domain: "sensor", suffix: "bypass_prog_grzanie" },
+  bypass_min: { domain: "sensor", suffix: "bypass_prog_min" },
 };
 
 function findThesslaEntities(hass) {
@@ -443,6 +449,7 @@ class ThesslaGreenCard extends HTMLElement {
       dFlowSup: q("d-flow-sup"),
       dFlowExt: q("d-flow-ext"),
       bp: q("bp"),
+      bpThr: q("bp-thr"),
       hex: this.shadowRoot.querySelector(".hex"),
       flows: this.shadowRoot.querySelectorAll(".flow"),
     };
@@ -499,6 +506,7 @@ class ThesslaGreenCard extends HTMLElement {
             <rect class="bp-pill" x="214" y="102" width="52" height="20" rx="10"/>
             <text class="bp-txt" x="240" y="116" text-anchor="middle">BYPASS</text>
           </g>
+          <text class="bp-thr" data-el="bp-thr" x="240" y="116" text-anchor="middle"></text>
 
           <!-- FPX pre-heater on the intake duct (masked from the flow line) -->
           <rect x="134" y="76" width="32" height="16" fill="${bg}"/>
@@ -755,6 +763,12 @@ class ThesslaGreenCard extends HTMLElement {
     if (e.bp) e.bp.classList.toggle("show", bypassOpen);
     // When open, the heat exchanger is bypassed → show it as inactive (dashed/dim).
     if (e.hex) e.hex.classList.toggle("bypass", bypassOpen);
+    // When enabled but closed, show the season activation threshold in the hexagon
+    // centre (e.g. "≥ 24°C") so it's clear when the bypass will open.
+    if (e.bpThr) {
+      const thr = this._num(winter ? en.bypass_heat : en.bypass_cool);
+      e.bpThr.textContent = bypassEnabled && !bypassOpen && thr !== null ? `≥ ${Math.round(thr)}°C` : "";
+    }
     // Show BOTH facts at once: is the function enabled, and is the bypass open
     // right now. "Enabled · Closed" = armed but idle (will auto-open when the
     // conditions allow); green = open (active); dimmed = function disabled.
@@ -849,6 +863,7 @@ class ThesslaGreenCard extends HTMLElement {
       .diag .fan-c { fill:none; stroke-width:2.5; }
       .diag .bp-pill { fill:var(--tg-accent); }
       .diag .bp-txt { fill:var(--tg-on-accent); font-size:11px; font-weight:800; letter-spacing:.5px; }
+      .diag .bp-thr { fill:var(--secondary-text-color); font-size:11px; font-weight:700; opacity:.85; }
       .diag .fname { font-size:12px; font-weight:800; letter-spacing:1.2px; }
       .diag .temp { fill:var(--primary-text-color); font-size:15px; font-weight:700; font-variant-numeric:tabular-nums; }
       .diag .sub { fill:var(--secondary-text-color); font-size:10px; font-weight:600; font-variant-numeric:tabular-nums; }

@@ -1,5 +1,18 @@
 # Fork changes — extra Modbus registers
 
+**v0.4.0** — more Modbus data. New read-only sensors for the **bypass configuration** (min /
+free-heating / free-cooling thresholds ×0.5 °C, bypass user-mode, flow-differentiation %,
+intensity %) and for the **special-function configuration** (fireplace intensity % + duration min,
+empty-house intensity %, open-window intensity %). New **fault binary_sensors** (curated, most
+diagnostically useful): fire alarm P.POŻ (S10), heater anti-freeze protection (S14/S15), and the
+four temperature-sensor faults (S23–S26 — inlet / duct / outdoor / outdoor-2). The card now draws
+the active season bypass threshold (`≥ X°C`) in the exchanger when the bypass is enabled but
+closed. All registers confirmed live on an AirPack 800v; every fault read 0 (no faults).
+Note: the P.POŻ *fire* state is taken from the S10 fault register (8202), **not** the raw digital
+input (`ppoz`, DI 15) — that input reads 1 in normal operation, so its polarity is ambiguous.
+Filter presostats and the P.POŻ input sit on **discrete inputs (fc2)**, which the integration does
+not read yet — deferred.
+
 **v0.3.1** — fix card auto-registration (added `frontend` to manifest dependencies so
 `add_extra_js_url` no longer fails with a swallowed `KeyError`; clearer logging). Card now uses
 the new entities: effective fan % (dac) in the status line + flow animation, true bypass status

@@ -33,6 +33,15 @@ BINARY_SENSORS = [
     {"name": "Rekuperator lato zima", "address": 4209, "input_type": "holding", "icon_on": "mdi:sun-thermometer", "icon_off": "mdi:snowflake"},
     {"name": "Rekuperator Wymiana Filtrów", "address": 8444, "input_type": "holding", "icon_on": "mdi:air-filter", "icon_off": "mdi:fan-alert"},
     {"name": "Rekuperator Status ERV", "address": 4704, "input_type": "holding", "on_value": 0, "icon_on": "mdi:radiator", "icon_off": "mdi:radiator-off"},
+
+    # Indywidualne bity usterek (fork; wybrane, najważniejsze diagnostycznie)
+    {"name": "Rekuperator Alarm P.POŻ", "address": 8202, "input_type": "holding", "device_class": "safety"},
+    {"name": "Rekuperator Zabezpieczenie przeciwzamrożeniowe", "address": 8206, "input_type": "holding", "device_class": "safety"},
+    {"name": "Rekuperator Zabezpieczenie przeciwzamrożeniowe 2", "address": 8207, "input_type": "holding", "device_class": "safety"},
+    {"name": "Rekuperator Awaria czujnika temp. na wlocie", "address": 8215, "input_type": "holding", "device_class": "problem"},
+    {"name": "Rekuperator Awaria czujnika temp. w kanale", "address": 8216, "input_type": "holding", "device_class": "problem"},
+    {"name": "Rekuperator Awaria czujnika temp. zewnętrznej", "address": 8217, "input_type": "holding", "device_class": "problem"},
+    {"name": "Rekuperator Awaria czujnika temp. zewnętrznej 2", "address": 8218, "input_type": "holding", "device_class": "problem"},
 ]
 
 async def async_setup_entry(

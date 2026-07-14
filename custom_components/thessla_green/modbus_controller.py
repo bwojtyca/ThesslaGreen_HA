@@ -75,6 +75,15 @@ class ThesslaGreenModbusController:
             (4660, 1),   # 4660 filter_supply_date_limit → days to supply filter change
             (4662, 1),   # 4662 filter_exhaust_date_limit → days to exhaust filter change
             (8190, 1),   # 8190 requiredTemp → KOMFORT target temp (x0.5 °C)
+            (4321, 3),   # 4321 minBypassTemp + 4322 free-heating + 4323 free-cooling (x0.5 °C) — read-only config
+            (4331, 3),   # 4331 bypassUserMode + 4332 flow-diff % + 4333 intensity % — read-only config
+            (4228, 1),   # 4228 fireplaceSupplyCoef → "Kominek" intensity (%)
+            (4237, 1),   # 4237 fireplaceModeTime → "Kominek" duration (min)
+            (4232, 1),   # 4232 emptyHouseCoef → "Pusty dom" intensity (%)
+            (4239, 1),   # 4239 openWindowCoef → "Otwarte okno" intensity (%)
+            (8202, 1),   # 8202 S10 → fire alarm (P.POŻ) tripped
+            (8206, 2),   # 8206 S14 + 8207 S15 → heater anti-freeze protection tripped
+            (8215, 4),   # 8215-8218 S23-S26 → temperature-sensor faults
         ]
         # Input registers (temperatures, ×0.1 °C). Kept as separate blocks so an
         # unsupported optional sensor (TN2/GWC on units without them) can't take
