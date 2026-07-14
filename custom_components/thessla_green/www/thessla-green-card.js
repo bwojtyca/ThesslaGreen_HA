@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "3.0.0-rc.10";
+const TG_VERSION = "3.0.0-rc.11";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -468,7 +468,7 @@ class ThesslaGreenCard extends HTMLElement {
           <!-- Intensity: only shown/editable in Manual mode. Native range input
                (drag-friendly); gradient fill via --pct, caption overlaid. -->
           <div class="speed-row" data-el="speed-row">
-            <div class="speed-track">
+            <div class="speed-track" data-el="speed-track">
               <input class="speed-input" data-el="speed-input" type="range" min="0" max="100" step="1" value="0"
                      aria-label="${t("intensity")}" />
               <span class="speed-cap" data-el="speed-cap">${t("intensity")}</span>
@@ -504,6 +504,7 @@ class ThesslaGreenCard extends HTMLElement {
       seasonTxt: q("season-txt"),
       status: q("status"),
       speedRow: q("speed-row"),
+      speedTrack: q("speed-track"),
       speedInput: q("speed-input"),
       speedCap: q("speed-cap"),
       modes: q("modes"),
@@ -796,7 +797,8 @@ class ThesslaGreenCard extends HTMLElement {
         this._speedTimer = null;
         const target = this._speedTarget;
         this._setNumber(en().speed, target);
-        this._lock(["intensity"], input, () => {
+        // Spinner on the track while the write is confirmed by the device.
+        this._lock(["intensity"], this._e.speedTrack, () => {
           const n = this._num(en().speed);
           return n !== null && Math.round(n) === target;
         });
@@ -852,6 +854,7 @@ class ThesslaGreenCard extends HTMLElement {
     };
     apply(this._e.power, "power");
     apply(this._e.season, "season");
+    apply(this._e.speedTrack, "intensity");
     this._e.modeTiles.forEach((tl) => tl.dataset.kind !== "temp" && apply(tl, "modes"));
     apply(this._e.bypass, "bypass");
   }
@@ -1211,14 +1214,16 @@ class ThesslaGreenCard extends HTMLElement {
                        linear-gradient(90deg,var(--tg-accent-d),var(--tg-accent)) 0 0 / calc(var(--pct,0) * 1%) 100% no-repeat,
                        var(--secondary-background-color); }
       .speed-input:focus-visible { border-color:var(--tg-accent); }
-      .speed-input::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:10px; height:34px;
-                     border:none; border-radius:6px; background:#fff; box-shadow:0 0 0 1px rgba(0,0,0,.18); cursor:grab; }
-      .speed-input::-webkit-slider-thumb:active { cursor:grabbing; }
-      .speed-input::-moz-range-thumb { width:10px; height:34px; border:none; border-radius:6px;
-                     background:#fff; box-shadow:0 0 0 1px rgba(0,0,0,.18); cursor:grab; }
+      /* Handle hidden: the blue fill alone shows the selection. The thumb stays
+         present (transparent) so dragging still has a grab region. */
+      .speed-input::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:6px; height:34px;
+                     border:none; background:transparent; box-shadow:none; cursor:pointer; }
+      .speed-input::-moz-range-thumb { width:6px; height:34px; border:none; background:transparent;
+                     box-shadow:none; cursor:pointer; }
       .speed-input::-moz-range-track { background:transparent; border:none; }
       .speed-cap { position:absolute; inset:0; display:grid; place-items:center; font-size:.78rem; font-weight:600;
                    color:var(--primary-text-color); text-shadow:0 1px 2px rgba(0,0,0,.18); pointer-events:none; }
+      .speed-track.pending .speed-cap { visibility:hidden; }  /* spinner takes the centre */
 
       /* Metrics */
       .metrics { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }

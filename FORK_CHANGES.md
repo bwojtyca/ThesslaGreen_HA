@@ -1,5 +1,10 @@
 # Fork changes — extra Modbus registers
 
+**v0.5.0-rc.13** — slider polish (card **3.0.0-rc.11**).
+- Intensity slider shows a **spinner** while the write is being confirmed by the device (after the
+  debounce fires), same as the other controls.
+- **Handle hidden** — the blue fill on the grey track shows the selection; no separate knob.
+
 **v0.5.0-rc.12** — real drag slider for intensity (card **3.0.0-rc.10**).
 - The manual-intensity control is now a native **`<input type="range">`** — it drags like a proper
   slider (was click/tap-only). Same filled-bar look (gradient fill via `--pct`, centred caption) plus
