@@ -14,6 +14,7 @@ class ControllerData:
     holding: Dict[int, int] = field(default_factory=dict)
     input: Dict[int, int] = field(default_factory=dict)
     coil: Dict[int, bool] = field(default_factory=dict)
+    discrete: Dict[int, bool] = field(default_factory=dict)
     update_interval: float = 0.0
 
 
@@ -83,9 +84,13 @@ class ThesslaGreenModbusController:
         self._input_blocks = [
             (0, 5),    # 0/1/4 firmware major/minor/patch (2,3 reserved)
             (16, 14),  # 16-19 temps (czerpnia/nawiew/wywiew/za-FPX) + 20/21 TN2/GWC + 22 TO + 24-29 serial
+            (271, 7),  # 271 CF active + 272/273 real supply/exhaust % + 274/275 CF flow + 276/277 min/max %
         ]
         # Coils: 9 bypass actuator output, 10 work-confirmation (info), 11 fan-power relay.
         self._coil_blocks = [(9, 3)]
+        # Discrete inputs (physical input states: filter presostats, P.POŻ, AirS
+        # switch positions, function inputs). One contiguous read 0-21.
+        self._discrete_blocks = [(0, 22)]
 
     async def stop(self):
         async with self._controller_lock:
@@ -155,6 +160,21 @@ class ThesslaGreenModbusController:
                     data_coil[start + i] = bool(val)
                 read_ok += len(result.bits)
 
+            # Read discrete inputs (physical input states)
+            data_discrete: dict[int, bool] = {}
+            for start, count in self._discrete_blocks:
+                try:
+                    result = await self._client.read_discrete_inputs(address=start, count=count, device_id=self._slave)
+                except Exception as e:
+                    _LOGGER.debug("Discrete %d-%d read exception (skipped): %s", start, start + count - 1, e)
+                    continue
+                if result is None or result.isError():
+                    _LOGGER.debug("Discrete %d-%d not available (skipped)", start, start + count - 1)
+                    continue
+                for i, val in enumerate(result.bits):
+                    data_discrete[start + i] = bool(val)
+                read_ok += len(result.bits)
+
             # If nothing at all was read, the device is unreachable → fail the
             # update so HA marks entities unavailable and retries.
             if read_ok == 0:
@@ -164,6 +184,7 @@ class ThesslaGreenModbusController:
                 holding=data_holding,
                 input=data_input,
                 coil=data_coil,
+                discrete=data_discrete,
                 update_interval=round(self._last_update_interval, 2)
             )
 

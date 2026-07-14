@@ -1,5 +1,23 @@
 # Fork changes — extra Modbus registers
 
+**v0.5.0-rc.19** — full register audit: real ventilation %, CF, physical inputs (card **3.0.0-rc.16**).
+Audited every documented register live on the 800v (`tools/audit_registers.py`) — several useful ones
+were being missed because we probed them in the wrong Modbus space.
+- **True ventilation % (INPUT 272/273)** — the actual airflow %, read as *input* registers (we'd only
+  tried them as *holding* = illegal). The card now shows this instead of the DAC control-signal %
+  (1280/1281), which over-reads: confirmed live at 25 % (Auto), 75 % (Manual), 20 % (Empty-house),
+  100 % (Airing), while DAC showed ~40/81/40/100 %. New sensors: **Wydajność rzeczywista nawiew/wywiew**
+  (272/273), **Przepływ CF nawiew/wywiew** (274/275), **Intensywność min/max** (276/277).
+- **Constant Flow is actually present** (INPUT 271 = 1). Added a **Constant Flow aktywny** binary_sensor
+  and **re-enabled the CF fault sensors** (8330/8331), now gated on real CF detection.
+- **Physical inputs (DISCRETE INPUTS)** — never read before. Enabled: **filter presostats**
+  (`dp_ahu_filter_overflow` 18, `dp_duct_filter_overflow` 3 — hardware "filter clogged"). Added
+  disabled-by-default: heater thermal protections, P.POŻ input, AirS switch positions (speed 1/2/3,
+  airing), hood/fireplace/empty-house/air-quality/humidity inputs.
+- **Bypass "why closed" gained a case:** open-window stops the supply fan, which holds the bypass shut
+  even when the temperatures would open it — now shown as **"nawiew zatrzymany"** (confirmed live).
+- Also exposed **Status komfort** (4305).
+
 **v0.5.0-rc.18** — tighter bottom section (card **3.0.0-rc.15**).
 - **Bypass** dropped its box (background + heavy padding) — now a borderless row (subtle hover),
   reclaiming the vertical space the padding cost.

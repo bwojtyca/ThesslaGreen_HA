@@ -70,6 +70,18 @@ SENSORS = [
     {"name": "Rekuperator Bieg 3 intensywność", "address": 4218, "input_type": "holding", "unit": "%", "icon": "mdi:speedometer"},
     # Zadana temperatura nawiewu w trybie CHWILOWYM (x0.5 °C)
     {"name": "Rekuperator Temperatura zadana chwilowy", "address": 4213, "input_type": "holding", "scale": 0.5, "precision": 1, "unit": UnitOfTemperature.CELSIUS, "icon": "mdi:thermometer-lines"},
+    # Rzeczywista wydajność wentylacji z modułu Constant Flow (INPUT 272/273) — realna
+    # intensywność w każdym trybie (dokładniejsza niż % z sygnału DAC 1280/1281).
+    {"name": "Rekuperator Wydajność rzeczywista nawiew", "address": 272, "input_type": "input", "unit": "%", "icon": "mdi:fan"},
+    {"name": "Rekuperator Wydajność rzeczywista wywiew", "address": 273, "input_type": "input", "unit": "%", "icon": "mdi:fan"},
+    # Strumień mierzony przez CF (INPUT 274/275, m³/h)
+    {"name": "Rekuperator Przepływ CF nawiew", "address": 274, "input_type": "input", "unit": "m3/h", "icon": "mdi:fan"},
+    {"name": "Rekuperator Przepływ CF wywiew", "address": 275, "input_type": "input", "unit": "m3/h", "icon": "mdi:fan"},
+    # Zakres nastawialnej intensywności (INPUT 276/277, %)
+    {"name": "Rekuperator Intensywność min", "address": 276, "input_type": "input", "unit": "%", "icon": "mdi:speedometer-slow"},
+    {"name": "Rekuperator Intensywność max", "address": 277, "input_type": "input", "unit": "%", "icon": "mdi:speedometer"},
+    # Aktualny status trybu KOMFORT (4305; 0=nieaktywny/1/2)
+    {"name": "Rekuperator Status komfort", "address": 4305, "input_type": "holding", "icon": "mdi:home-thermometer"},
 ]
 
 def _read_device_metadata(coordinator: ThesslaGreenCoordinator) -> dict:

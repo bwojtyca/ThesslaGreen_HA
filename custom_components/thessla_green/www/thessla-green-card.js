@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "3.0.0-rc.15";
+const TG_VERSION = "3.0.0-rc.16";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -49,8 +49,10 @@ const DEFAULT_ENTITIES = {
   alarm: `binary_sensor.${DEV}rekuperator_alarm`, // 8192: any "E" warning
   error: `binary_sensor.${DEV}rekuperator_error`, // 8193: any "S" (blocking) error
   // --- optional entities from the fork (v0.3.0+); card falls back if absent ---
-  fan_supply_pct: `sensor.${DEV}rekuperator_wydajnosc_nawiew`, // dac 1280 → effective %
-  fan_extract_pct: `sensor.${DEV}rekuperator_wydajnosc_wywiew`, // dac 1281 → effective %
+  fan_supply_pct: `sensor.${DEV}rekuperator_wydajnosc_nawiew`, // dac 1280 → control-signal % (fallback)
+  fan_extract_pct: `sensor.${DEV}rekuperator_wydajnosc_wywiew`, // dac 1281 → control-signal % (fallback)
+  eff_sup: `sensor.${DEV}rekuperator_wydajnosc_rzeczywista_nawiew`, // 272 → true ventilation %
+  eff_ext: `sensor.${DEV}rekuperator_wydajnosc_rzeczywista_wywiew`, // 273 → true ventilation %
   bypass_status: `sensor.${DEV}rekuperator_status_bypass`, // 4330: true bypass status
   alarm_code: `sensor.${DEV}rekuperator_kod_alarmu`, // 4384: blocking S-alarm number
   filter_days: `sensor.${DEV}rekuperator_filtr_nawiew_dni`, // 4660: days to filter change
@@ -99,6 +101,8 @@ const ENTITY_RULES = {
   error: { domain: "binary_sensor", suffix: "rekuperator_error" },
   fan_supply_pct: { domain: "sensor", suffix: "wydajnosc_nawiew" },
   fan_extract_pct: { domain: "sensor", suffix: "wydajnosc_wywiew" },
+  eff_sup: { domain: "sensor", suffix: "wydajnosc_rzeczywista_nawiew" },
+  eff_ext: { domain: "sensor", suffix: "wydajnosc_rzeczywista_wywiew" },
   bypass_status: { domain: "sensor", suffix: "status_bypass" },
   alarm_code: { domain: "sensor", suffix: "kod_alarmu" },
   filter_days: { domain: "sensor", suffix: "filtr_nawiew_dni" },
@@ -214,8 +218,8 @@ const I18N = {
     intake: "INTAKE", extract: "EXTRACT", exhaust: "EXHAUST", supply: "SUPPLY",
     warning: "Warning", error: "Error", schedule: "schedule", active: "active", off: "Off", target: "target",
     cfg_comfort: "comf", cfg_min: "min", cfg_wear: "wear",
-    bpr_cold: "too cold outside", bpr_band: "room temp in range",
-    bpr_cold_short: "too cold", bpr_band_short: "in range",
+    bpr_cold: "too cold outside", bpr_band: "room temp in range", bpr_nosupply: "supply fan stopped",
+    bpr_cold_short: "too cold", bpr_band_short: "in range", bpr_nosupply_short: "no supply",
   },
   pl: {
     name: "Rekuperator", power: "Zasilanie", season: "Sezon", winter: "Zima", summer: "Lato",
@@ -230,8 +234,8 @@ const I18N = {
     intake: "CZERPNIA", extract: "WYWIEW", exhaust: "WYRZUTNIA", supply: "NAWIEW",
     warning: "Ostrzeżenie", error: "Błąd", schedule: "harmonogram", active: "aktywne", off: "Wyłączony", target: "cel",
     cfg_comfort: "komf", cfg_min: "min", cfg_wear: "zużycie",
-    bpr_cold: "za zimno na zewnątrz", bpr_band: "temperatura w normie",
-    bpr_cold_short: "za zimno", bpr_band_short: "w normie",
+    bpr_cold: "za zimno na zewnątrz", bpr_band: "temperatura w normie", bpr_nosupply: "nawiew zatrzymany",
+    bpr_cold_short: "za zimno", bpr_band_short: "w normie", bpr_nosupply_short: "nawiew stop",
   },
 };
 
@@ -321,8 +325,10 @@ class ThesslaGreenCard extends HTMLElement {
   // Effective fan output % from the fork's dac sensors (avg of supply+extract).
   // null when the fork entities aren't present → callers fall back.
   _effPct() {
-    const s = this._num(this._entities.fan_supply_pct);
-    const e = this._num(this._entities.fan_extract_pct);
+    // Prefer the true ventilation % (CF regs 272/273); fall back to the DAC
+    // control-signal % (1280/1281), which runs higher than the actual airflow.
+    const s = this._num(this._entities.eff_sup) ?? this._num(this._entities.fan_supply_pct);
+    const e = this._num(this._entities.eff_ext) ?? this._num(this._entities.fan_extract_pct);
     if (s === null && e === null) return null;
     if (s !== null && e !== null) return Math.round((s + e) / 2);
     return Math.round(s ?? e);
@@ -443,7 +449,13 @@ class ThesslaGreenCard extends HTMLElement {
     const bmin = this._num(en.bypass_min);     // 4321 min outdoor temp
     const heat = this._num(en.bypass_heat);    // 4322 free-heating threshold (TP below → open)
     const cool = this._num(en.bypass_cool);    // 4323 free-cooling threshold (TP above → open)
+    const sup = this._num(en.eff_sup);         // 272 true supply %; 0 = supply fan stopped
     const reasons = [];
+    // Supply fan stopped (e.g. open-window) → nothing to bypass; it stays shut.
+    // This overrides the temperature reasons, so list it first.
+    if (sup === 0) {
+      reasons.push({ key: "nosupply", label: t("bpr_nosupply"), short: t("bpr_nosupply_short") });
+    }
     // Outdoor colder than the configured minimum → bypass held shut.
     if (intake !== null && bmin !== null && intake < bmin) {
       reasons.push({ key: "cold", label: t("bpr_cold"), short: t("bpr_cold_short"), detail: `${Math.round(intake)}° < ${Math.round(bmin)}°` });
@@ -1076,8 +1088,8 @@ class ThesslaGreenCard extends HTMLElement {
       e.dFpx.textContent = this._temp(en.temp_fpx);
       e.dFlowSup.textContent = this._flow(en.flow_supply);
       e.dFlowExt.textContent = this._flow(en.flow_extract);
-      const ps = this._num(en.fan_supply_pct); // fork: effective fan % (dac)
-      const pe = this._num(en.fan_extract_pct);
+      const ps = this._num(en.eff_sup) ?? this._num(en.fan_supply_pct); // true % (272), else dac
+      const pe = this._num(en.eff_ext) ?? this._num(en.fan_extract_pct);
       e.dPctSup.textContent = ps === null ? "" : `${Math.round(ps)}%`;
       e.dPctExt.textContent = pe === null ? "" : `${Math.round(pe)}%`;
       this._setFilterWear(e.filtFillSup, this._num(en.filter_wear_sup));
