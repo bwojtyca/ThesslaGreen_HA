@@ -16,7 +16,7 @@ PLATFORMS = ["sensor", "switch", "binary_sensor", "select", "number"]
 # Lovelace card bundled with the integration. It is served from the integration
 # folder and auto-registered as a frontend JS module, so the user does not have
 # to copy the file to /config/www/ or add a dashboard resource by hand.
-CARD_VERSION = "2.1.0"  # bump to bust the browser cache after card changes
+CARD_VERSION = "2.1.1"  # bump to bust the browser cache after card changes
 CARD_URL = f"/{DOMAIN}/thessla-green-card.js"
 CARD_PATH = os.path.join(os.path.dirname(__file__), "www", "thessla-green-card.js")
 
@@ -24,26 +24,36 @@ CARD_PATH = os.path.join(os.path.dirname(__file__), "www", "thessla-green-card.j
 async def _register_card(hass: HomeAssistant) -> None:
     """Serve the bundled card and auto-load it as a frontend module."""
     if not os.path.exists(CARD_PATH):
-        _LOGGER.debug("Bundled card not found at %s — skipping auto-register", CARD_PATH)
+        _LOGGER.error(
+            "ThesslaGreen card not found at %s — was the www/ folder installed?", CARD_PATH
+        )
         return
-    # 1) Serve the file (new async API, fall back to the legacy sync one).
+    # 1) Serve the file. Prefer the modern async API; only fall back to the
+    #    legacy sync one if async_register_static_paths is genuinely missing.
     try:
         from homeassistant.components.http import StaticPathConfig
         await hass.http.async_register_static_paths(
             [StaticPathConfig(CARD_URL, CARD_PATH, False)]
         )
-    except Exception:  # noqa: BLE001 — best-effort across HA versions
+    except AttributeError:
         try:
             hass.http.register_static_path(CARD_URL, CARD_PATH, False)
         except Exception as e:  # noqa: BLE001
-            _LOGGER.warning("Could not serve the ThesslaGreen card: %s", e)
+            _LOGGER.error("Could not serve the ThesslaGreen card: %s", e)
             return
+    except Exception as e:  # noqa: BLE001
+        _LOGGER.error("Could not serve the ThesslaGreen card at %s: %s", CARD_URL, e)
+        return
     # 2) Auto-load it as a JS module on the frontend (no manual resource needed).
+    #    Requires the `frontend` component to be set up first — declared as a
+    #    dependency in manifest.json so DATA_EXTRA_MODULE_URL already exists.
     try:
         from homeassistant.components.frontend import add_extra_js_url
         add_extra_js_url(hass, f"{CARD_URL}?v={CARD_VERSION}")
     except Exception as e:  # noqa: BLE001
-        _LOGGER.warning("Could not auto-register the ThesslaGreen card module: %s", e)
+        _LOGGER.error("Could not auto-register the ThesslaGreen card module: %s", e)
+        return
+    _LOGGER.info("ThesslaGreen card served at %s and auto-loaded on the frontend", CARD_URL)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:

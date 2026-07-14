@@ -3,11 +3,11 @@
   "name": "Thessla Green",
   "codeowners": ["@aLAN-LDZ", "@bwojtyca"],
   "config_flow": true,
-  "dependencies": ["http"],
+  "dependencies": ["http", "frontend"],
   "documentation": "https://github.com/bwojtyca/ThesslaGreen_HA",
   "integration_type": "hub",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/bwojtyca/ThesslaGreen_HA/issues",
   "requirements": ["pymodbus>=3.11.2"],
-  "version": "0.3.0"
+  "version": "0.3.1"
 }

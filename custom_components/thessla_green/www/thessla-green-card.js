@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "2.1.0";
+const TG_VERSION = "2.1.1";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -47,6 +47,13 @@ const DEFAULT_ENTITIES = {
   filter_change: `binary_sensor.${DEV}rekuperator_wymiana_filtrow`, // E252 (8444)
   alarm: `binary_sensor.${DEV}rekuperator_alarm`, // 8192: any "E" warning
   error: `binary_sensor.${DEV}rekuperator_error`, // 8193: any "S" (blocking) error
+  // --- optional entities from the fork (v0.3.0+); card falls back if absent ---
+  fan_supply_pct: `sensor.${DEV}rekuperator_wydajnosc_nawiew`, // dac 1280 → effective %
+  fan_extract_pct: `sensor.${DEV}rekuperator_wydajnosc_wywiew`, // dac 1281 → effective %
+  bypass_status: `sensor.${DEV}rekuperator_status_bypass`, // 4330: true bypass status
+  alarm_code: `sensor.${DEV}rekuperator_kod_alarmu`, // 4384: blocking S-alarm number
+  filter_days: `sensor.${DEV}rekuperator_filtr_nawiew_dni`, // 4660: days to filter change
+  target_temp: `sensor.${DEV}rekuperator_temperatura_zadana`, // 4212: target supply temp
 };
 
 const ENTITY_RULES = {
@@ -72,6 +79,12 @@ const ENTITY_RULES = {
   filter_change: { domain: "binary_sensor", suffix: "wymiana_filtrow" },
   alarm: { domain: "binary_sensor", suffix: "rekuperator_alarm" },
   error: { domain: "binary_sensor", suffix: "rekuperator_error" },
+  fan_supply_pct: { domain: "sensor", suffix: "wydajnosc_nawiew" },
+  fan_extract_pct: { domain: "sensor", suffix: "wydajnosc_wywiew" },
+  bypass_status: { domain: "sensor", suffix: "status_bypass" },
+  alarm_code: { domain: "sensor", suffix: "kod_alarmu" },
+  filter_days: { domain: "sensor", suffix: "filtr_nawiew_dni" },
+  target_temp: { domain: "sensor", suffix: "temperatura_zadana" },
 };
 
 function findThesslaEntities(hass) {
@@ -152,7 +165,7 @@ const I18N = {
     filters: "Filters", replace: "Replace", ok: "OK",
     efficiency: "Efficiency", recovery: "Recovery", cop: "COP",
     intake: "INTAKE", extract: "EXTRACT", exhaust: "EXHAUST", supply: "SUPPLY",
-    warning: "Warning", error: "Error", schedule: "schedule", active: "active", off: "Off",
+    warning: "Warning", error: "Error", schedule: "schedule", active: "active", off: "Off", target: "target",
   },
   pl: {
     name: "Rekuperator", power: "Zasilanie", season: "Sezon", winter: "Zima", summer: "Lato",
@@ -162,7 +175,7 @@ const I18N = {
     filters: "Filtry", replace: "Wymień", ok: "OK",
     efficiency: "Sprawność", recovery: "Odzysk", cop: "COP",
     intake: "CZERPNIA", extract: "WYWIEW", exhaust: "WYRZUTNIA", supply: "NAWIEW",
-    warning: "Ostrzeżenie", error: "Błąd", schedule: "harmonogram", active: "aktywne", off: "Wyłączony",
+    warning: "Ostrzeżenie", error: "Błąd", schedule: "harmonogram", active: "aktywne", off: "Wyłączony", target: "cel",
   },
 };
 
@@ -242,6 +255,15 @@ class ThesslaGreenCard extends HTMLElement {
   _flow(id) {
     const v = this._num(id);
     return v === null ? "" : `${Math.round(v)} m³/h`;
+  }
+  // Effective fan output % from the fork's dac sensors (avg of supply+extract).
+  // null when the fork entities aren't present → callers fall back.
+  _effPct() {
+    const s = this._num(this._entities.fan_supply_pct);
+    const e = this._num(this._entities.fan_extract_pct);
+    if (s === null && e === null) return null;
+    if (s !== null && e !== null) return Math.round((s + e) / 2);
+    return Math.round(s ?? e);
   }
   _t(key) {
     const lang = pickLang(this._hass);
@@ -385,6 +407,7 @@ class ThesslaGreenCard extends HTMLElement {
       dIntake: q("d-intake"),
       dExtract: q("d-extract"),
       dSupply: q("d-supply"),
+      dTarget: q("d-target"),
       dFpx: q("d-fpx"),
       dFlowSup: q("d-flow-sup"),
       dFlowExt: q("d-flow-ext"),
@@ -469,6 +492,7 @@ class ThesslaGreenCard extends HTMLElement {
           <text class="temp" data-el="d-intake"  data-mref="temp_intake"  x="60"  y="70"  text-anchor="middle">—</text>
           <text class="temp" data-el="d-extract" data-mref="temp_extract" x="420" y="70"  text-anchor="middle">—</text>
           <text class="temp" data-el="d-supply"  data-mref="temp_supply"  x="330" y="132" text-anchor="middle">—</text>
+          <text class="sub"  data-el="d-target"  data-mref="target_temp"  x="330" y="148" text-anchor="middle"></text>
         </svg>
       </div>`;
   }
@@ -600,7 +624,8 @@ class ThesslaGreenCard extends HTMLElement {
     e.warn.hidden = !showWarn;
     e.warn.classList.toggle("critical", errOn);
     this._warnTarget = errOn ? en.error : en.alarm;
-    e.warn.title = errOn ? t("error") : t("warning");
+    const acode = this._num(en.alarm_code); // fork: blocking S-alarm number (4384)
+    e.warn.title = errOn ? `${t("error")}${acode ? ` (${acode})` : ""}` : t("warning");
 
     // Season.
     const season = this._state(en.season);
@@ -625,6 +650,9 @@ class ThesslaGreenCard extends HTMLElement {
     const flowExt = this._num(en.flow_extract);
     const airflow = flowSup ?? flowExt;
     const m3 = airflow === null ? "" : ` · ${Math.round(airflow)} m³/h`;
+    // Effective fan output % (fork dac sensors) — real intensity in any mode.
+    const effPct = this._effPct();
+    const pctStr = effPct === null ? "" : ` · ${effPct}%`;
 
     // Intensity slider only when Manual, powered, no special override.
     const manualEditable = powerOn && !specialActive && mode === 1;
@@ -644,23 +672,30 @@ class ThesslaGreenCard extends HTMLElement {
       tl.classList.toggle("active", active);
     });
 
-    // Status line: what currently controls the airflow.
+    // Status line: what currently controls the airflow (effective % + m³/h).
+    const info = `${pctStr}${m3}`;
     let status;
     if (!powerAvail) status = "";
     else if (!powerOn) status = t("off");
     else if (specialActive) {
       const fn = SPECIAL_FUNCTIONS.find((f) => f.option === special);
-      status = `${fn ? t(fn.key) : special} · ${t("active")}${m3}`;
-    } else if (mode === 1) status = speed === null ? t("manual") : `${t("manual")} · ${Math.round(speedPct)}%`;
-    else if (mode === 0) status = `${t("auto")} · ${t("schedule")}${m3}`;
-    else if (mode === 2) status = `${t("temporary")}${m3}`;
-    else status = m3.replace(/^ · /, "");
+      status = `${fn ? t(fn.key) : special} · ${t("active")}${info}`;
+    } else if (mode === 1) {
+      // Manual: prefer the effective %, else the manual setpoint from the slider.
+      const man = effPct !== null ? info : speed === null ? "" : ` · ${Math.round(speedPct)}%`;
+      status = `${t("manual")}${man}`;
+    } else if (mode === 0) status = `${t("auto")} · ${t("schedule")}${info}`;
+    else if (mode === 2) status = `${t("temporary")}${info}`;
+    else status = info.replace(/^ · /, "");
     e.status.textContent = status;
     e.status.hidden = !status;
 
-    // Airflow animation driven by REAL airflow (m³/h).
-    const running = powerOn && (airflow ?? 0) > 0;
-    const dur = clamp(2.6 - (airflow ?? 0) / 150, 0.5, 2.6);
+    // Airflow animation: prefer the effective fan % (fork), else real m³/h.
+    const running = powerOn && (effPct ?? airflow ?? 0) > 0;
+    const dur =
+      effPct !== null
+        ? clamp(2.6 - effPct / 45, 0.5, 2.6)
+        : clamp(2.6 - (airflow ?? 0) / 150, 0.5, 2.6);
     e.flows.forEach((f) => {
       f.style.animationDuration = `${dur}s`;
       f.style.animationPlayState = running ? "running" : "paused";
@@ -674,11 +709,16 @@ class ThesslaGreenCard extends HTMLElement {
       e.dFpx.textContent = this._temp(en.temp_fpx);
       e.dFlowSup.textContent = this._flow(en.flow_supply);
       e.dFlowExt.textContent = this._flow(en.flow_extract);
+      const tt = this._num(en.target_temp); // fork: target supply temp (4212)
+      e.dTarget.textContent = tt === null ? "" : `${t("target")} ${tt.toFixed(1)}°C`;
     }
 
     // Bypass: chip = function enable (reg 4320); badge = actuator open now (coil 9).
     const bypassEnabled = this._isOn(en.bypass);
-    const bypassOpen = this._isOn(en.bypass_open);
+    // Prefer the true bypass status (fork reg 4330: 0=inactive, 1/2=active);
+    // fall back to the actuator coil (9) when the fork sensor isn't present.
+    const bypStatus = this._num(en.bypass_status);
+    const bypassOpen = bypStatus !== null ? bypStatus !== 0 : this._isOn(en.bypass_open);
     if (e.bp) e.bp.classList.toggle("show", bypassOpen);
     e.bypass.classList.toggle("on", bypassEnabled);
     e.bypassTxt.textContent = bypassEnabled ? t("enabled") : t("disabled");
@@ -696,7 +736,8 @@ class ThesslaGreenCard extends HTMLElement {
     // Filters.
     const filterAlarm = this._isOn(en.filter_change);
     e.filter.classList.toggle("warn", filterAlarm);
-    e.filterTxt.textContent = filterAlarm ? t("replace") : t("ok");
+    const fdays = this._num(en.filter_days); // fork: days to filter change (4660)
+    e.filterTxt.textContent = filterAlarm ? t("replace") : fdays !== null ? `${Math.round(fdays)} d` : t("ok");
 
     this._applyPending();
   }

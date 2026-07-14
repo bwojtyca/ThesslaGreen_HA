@@ -1,5 +1,12 @@
 # Fork changes — extra Modbus registers
 
+**v0.3.1** — fix card auto-registration (added `frontend` to manifest dependencies so
+`add_extra_js_url` no longer fails with a swallowed `KeyError`; clearer logging). Card now uses
+the new entities: effective fan % (dac) in the status line + flow animation, true bypass status
+(4330) for the badge, alarm code in the fault tooltip, filter days on the Filters chip, and the
+target supply temperature on the diagram — all with graceful fallback when a sensor is absent.
+
+
 Fork of [aLAN-LDZ/ThesslaGreen_HA](https://github.com/aLAN-LDZ/ThesslaGreen_HA) that exposes
 more of the AirPack Modbus map as Home Assistant entities. Branch: `feature/extra-registers`.
 
