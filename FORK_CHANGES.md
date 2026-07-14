@@ -1,5 +1,13 @@
 # Fork changes — extra Modbus registers
 
+**v0.5.0-rc.11** — debounced intensity slider + status tidy (card **3.0.0-rc.9**).
+- **Manual-intensity slider is now debounced.** Every click/drag used to fire a modbus write
+  immediately; now the writes are coalesced — the request goes out only after ~450 ms of no further
+  input, so you can click/slide freely and only the final value is sent. The slider updates
+  optimistically while you drag and reconciles with the device once it confirms.
+- Dropped the redundant "aktywne" word from the status line under the diagram
+  (e.g. now **"Auto · Wietrzenie · 100% · 547 m³/h"**).
+
 **v0.5.0-rc.10** — operating-mode "unknown" fix + Auto-airing display (card **3.0.0-rc.8**).
 - **"Rekuperator Tryb" no longer goes `unknown`.** The select mapped only 5 of the documented
   `specialMode` (4224) codes; when the schedule started airing in Auto it reported **8 =

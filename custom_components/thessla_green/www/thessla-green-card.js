@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "3.0.0-rc.8";
+const TG_VERSION = "3.0.0-rc.9";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -230,6 +230,9 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 // Optimistic-state locking (Modbus writes + a refresh can take a few seconds).
 const PENDING_TIMEOUT = 15000;
+// Manual-intensity slider: coalesce rapid clicks/drags into a single write. The
+// modbus request fires only after the user has been quiet this long (ms).
+const SPEED_DEBOUNCE = 450;
 const SCOPE_ALL = ["power", "season", "intensity", "modes", "bypass"];
 
 class ThesslaGreenCard extends HTMLElement {
@@ -238,6 +241,8 @@ class ThesslaGreenCard extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this._built = false;
     this._e = {};
+    this._speedTarget = null; // optimistic manual-intensity value while debouncing
+    this._speedTimer = null;  // pending debounced write
   }
 
   // ---- Lovelace API --------------------------------------------------------
@@ -777,23 +782,37 @@ class ThesslaGreenCard extends HTMLElement {
       this._lock(["season"], this._e.season, () => this._state(en().season) === next);
     };
 
+    // Base the next step on the pending (optimistic) value while debouncing, so
+    // repeated +/- clicks accumulate from what's on screen, not the stale entity.
     const cur = () => {
+      if (this._speedTarget !== null) return this._speedTarget;
       const s = this._num(en().speed);
       return s === null ? 0 : s;
     };
-    const setSpeed = (val, spinEl) => {
-      this._setNumber(en().speed, val);
-      this._lock(["intensity"], spinEl, () => {
-        const n = this._num(en().speed);
-        return n !== null && Math.round(n) === val;
-      });
+    // Debounced write: update the optimistic UI immediately and (re)arm a timer;
+    // the modbus request fires only after SPEED_DEBOUNCE ms of no further input,
+    // so a burst of clicks/drags collapses into one write of the final value.
+    const queueSpeed = (val, spinEl) => {
+      this._speedTarget = val;
+      this._e.speedFill.style.width = `${val}%`;
+      this._e.speedCap.textContent = `${this._t("intensity")} · ${val}%`;
+      clearTimeout(this._speedTimer);
+      this._speedTimer = setTimeout(() => {
+        this._speedTimer = null;
+        const target = this._speedTarget;
+        this._setNumber(en().speed, target);
+        this._lock(["intensity"], spinEl, () => {
+          const n = this._num(en().speed);
+          return n !== null && Math.round(n) === target;
+        });
+      }, SPEED_DEBOUNCE);
     };
-    this._e.speedDn.onclick = () => setSpeed(clamp(cur() - this._config.speed_step, 0, 100), this._e.speedDn);
-    this._e.speedUp.onclick = () => setSpeed(clamp(cur() + this._config.speed_step, 0, 100), this._e.speedUp);
+    this._e.speedDn.onclick = () => queueSpeed(clamp(cur() - this._config.speed_step, 0, 100), this._e.speedDn);
+    this._e.speedUp.onclick = () => queueSpeed(clamp(cur() + this._config.speed_step, 0, 100), this._e.speedUp);
     this._e.track.onclick = (ev) => {
       const r = this._e.track.getBoundingClientRect();
       const val = clamp(Math.round(((ev.clientX - r.left) / r.width) * 100), 0, 100);
-      setSpeed(val, this._e.track);
+      queueSpeed(val, this._e.track);
     };
 
     this._e.modeTiles.forEach((tl) => {
@@ -897,7 +916,14 @@ class ThesslaGreenCard extends HTMLElement {
     const autoTrig = specialActive && [3, 4, 5, 6, 8, 9].includes(this._specialCode());
 
     // Manual intensity (register 4210) — meaningful only in Manual mode.
-    const speed = this._num(en.speed);
+    // While a debounce/confirm is in flight, show the optimistic target; once the
+    // device confirms it (and nothing is pending), drop back to the entity value.
+    const intensityPending = this._speedTimer !== null || (this._pending && this._pending.scopes.has("intensity"));
+    const speedRaw = this._num(en.speed);
+    // Once nothing is in flight (debounce done, lock resolved or timed out), drop
+    // the optimistic value and show the entity truth.
+    if (this._speedTarget !== null && !intensityPending && speedRaw !== null) this._speedTarget = null;
+    const speed = this._speedTarget !== null ? this._speedTarget : speedRaw;
     const speedPct = clamp(speed ?? 0, 0, 100);
     e.speedFill.style.width = `${speedPct}%`;
     e.speedCap.textContent = speed === null ? t("intensity") : `${t("intensity")} · ${Math.round(speedPct)}%`;
@@ -946,7 +972,7 @@ class ThesslaGreenCard extends HTMLElement {
       const fnLabel = fn ? t(fn.key) : special;
       // Auto-triggered airing keeps the base mode in front: "Auto · Wietrzenie · …".
       const base = autoTrig ? (mode === 0 ? `${t("auto")} · ` : mode === 1 ? `${t("manual")} · ` : "") : "";
-      status = `${base}${fnLabel} · ${t("active")}${info}`;
+      status = `${base}${fnLabel}${info}`;
     } else if (mode === 1) {
       // Manual: prefer the effective %, else the manual setpoint from the slider.
       const man = effPct !== null ? info : speed === null ? "" : ` · ${Math.round(speedPct)}%`;
