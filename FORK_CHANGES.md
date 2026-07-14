@@ -1,5 +1,15 @@
 # Fork changes — extra Modbus registers
 
+**v0.5.0-rc.5** — capability detection (card unchanged, 3.0.0-rc.3).
+- Reads `271 constant_flow_active` + `4704 postHeater_on` to detect what the unit actually has.
+- Model-irrelevant entities are created **disabled by default** instead of cluttering the device:
+  CF sensor faults (8330/8331) → disabled on non-CF units; "Status ERV" (4704) → disabled without a
+  secondary heater. Only affects newly-created entities; existing ones keep their state.
+- Mechanism: a `requires:` tag on the entity + a `caps` map — extensible to more functions.
+
+**v0.5.0-rc.4** — dropped misleading bypass mode-2/3 sensors (różnicowanie 4332, intensywność 4333);
+the 800v runs bypass mode 1 (damper 100%).
+
 **v0.5.0-rc.3** — filter tweaks + openWindow guard (card **3.0.0-rc.3**).
 - Diagram filters are independent again (they're separate entities: supply vs exhaust wear) — hovering
   one no longer highlights both; each opens its own history.

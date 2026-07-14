@@ -20,8 +20,8 @@ BINARY_SENSORS = [
 
     # Odczyt z HOLDING REGISTERS
     {"name": "Rekuperator Alarm", "address": 8192, "input_type": "holding", "device_class": "problem"},
-    {"name": "Rekuperator Awaria CF Nawiewu", "address": 8330, "input_type": "holding", "device_class": "problem"},
-    {"name": "Rekuperator Awaria CF Wywiewu", "address": 8331, "input_type": "holding", "device_class": "problem"},
+    {"name": "Rekuperator Awaria CF Nawiewu", "address": 8330, "input_type": "holding", "device_class": "problem", "requires": "cf"},
+    {"name": "Rekuperator Awaria CF Wywiewu", "address": 8331, "input_type": "holding", "device_class": "problem", "requires": "cf"},
     {"name": "Rekuperator Awaria Wentylatora Nawiewu", "address": 8222, "input_type": "holding", "device_class": "problem"},
     {"name": "Rekuperator Awaria Wentylatora Wywiewu", "address": 8223, "input_type": "holding", "device_class": "problem"},
 
@@ -34,7 +34,7 @@ BINARY_SENSORS = [
     {"name": "Rekuperator Zabezpieczenie termiczne nagrzewnicy", "address": 8208, "input_type": "holding", "device_class": "safety"},
     {"name": "Rekuperator lato zima", "address": 4209, "input_type": "holding", "icon_on": "mdi:sun-thermometer", "icon_off": "mdi:snowflake"},
     {"name": "Rekuperator Wymiana Filtrów", "address": 8444, "input_type": "holding", "icon_on": "mdi:air-filter", "icon_off": "mdi:fan-alert"},
-    {"name": "Rekuperator Status ERV", "address": 4704, "input_type": "holding", "on_value": 0, "icon_on": "mdi:radiator", "icon_off": "mdi:radiator-off"},
+    {"name": "Rekuperator Status ERV", "address": 4704, "input_type": "holding", "on_value": 0, "icon_on": "mdi:radiator", "icon_off": "mdi:radiator-off", "requires": "postheater"},
 
     # Indywidualne bity usterek (fork; wybrane, najważniejsze diagnostycznie)
     {"name": "Rekuperator Alarm P.POŻ", "address": 8202, "input_type": "holding", "device_class": "safety"},
@@ -55,11 +55,14 @@ async def async_setup_entry(
     modbus_data = hass.data[DOMAIN][entry.entry_id]
     coordinator: ThesslaGreenCoordinator = modbus_data["coordinator"]
     slave = modbus_data["slave"]
+    caps = modbus_data.get("caps", {})
 
-    entities = [
-        ModbusBinarySensor(coordinator=coordinator, slave=slave, **sensor)
-        for sensor in BINARY_SENSORS
-    ]
+    entities = []
+    for sensor in BINARY_SENSORS:
+        cfg = dict(sensor)
+        req = cfg.pop("requires", None)  # capability tag → disabled by default if the unit lacks it
+        enabled = True if req is None else bool(caps.get(req))
+        entities.append(ModbusBinarySensor(coordinator=coordinator, slave=slave, enabled_default=enabled, **cfg))
 
     async_add_entities(entities)
 
@@ -78,9 +81,11 @@ class ModbusBinarySensor(BinarySensorEntity):
         icon_on: str | None = None,
         icon_off: str | None = None,
         on_value: int | None = None,
+        enabled_default: bool = True,
     ):
         self.coordinator = coordinator
         self._attr_name = name
+        self._attr_entity_registry_enabled_default = enabled_default
         self._address = address
         self._input_type = input_type
         self._slave = slave

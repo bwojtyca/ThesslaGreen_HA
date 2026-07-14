@@ -97,6 +97,7 @@ class ThesslaGreenModbusController:
             (20, 2),   # 20 TN2 (kanałowa) + 21 GWC — read 0 / skipped if not installed
             (22, 1),   # 22 otoczenie (TO)
             (24, 6),   # 24-29 serial_number_1..6 → controller serial number
+            (271, 1),  # 271 constant_flow_active → CF module present? (illegal/absent on non-CF units)
         ]
         # Coils: 9 bypass actuator output, 10 work-confirmation (info), 11 fan-power relay.
         self._coil_blocks = [(9, 3)]

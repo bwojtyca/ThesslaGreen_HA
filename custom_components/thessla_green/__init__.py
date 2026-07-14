@@ -56,6 +56,21 @@ async def _register_card(hass: HomeAssistant) -> None:
     _LOGGER.info("ThesslaGreen card served at %s and auto-loaded on the frontend", CARD_URL)
 
 
+def _capabilities(coordinator) -> dict:
+    """Detect which hardware/functions the unit actually has, from the registers
+    it exposes. Registers that are illegal on a given model are skipped by the
+    tolerant reader, so their absence is a reliable "not present" signal.
+
+    Used to create model-irrelevant entities as *disabled by default* rather than
+    cluttering the device with always-zero entities.
+    """
+    d = coordinator.safe_data
+    return {
+        "cf": 271 in d.input,          # Constant Flow module present
+        "postheater": 4704 in d.holding,  # secondary heater / ERV present
+    }
+
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up from YAML (not used) + register the bundled Lovelace card."""
     await _register_card(hass)
@@ -97,6 +112,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "coordinator": coordinator,
         "slave": slave,
         "scan_interval": update_interval,
+        "caps": _capabilities(coordinator),
     }
 
     # Forward setup dla każdej platformy
