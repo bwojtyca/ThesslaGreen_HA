@@ -1,5 +1,14 @@
 # Fork changes — extra Modbus registers
 
+**v0.5.0-rc.9** — options-flow 500 fix + tighter SVG crop (card **3.0.0-rc.7**).
+- **Options flow no longer 500s.** The handler set `self.config_entry` in its `__init__`, which HA
+  deprecated (2024.11) and later removed — on current cores that assignment raises, so opening the
+  integration's *Configure* dialog (`POST …/options/flow`) errored out. Dropped the custom `__init__`
+  (the base `OptionsFlow` provides `self.config_entry`) and stopped passing the entry to the handler;
+  empty power-sensor default now uses `vol.UNDEFINED` instead of `None`.
+- Diagram `viewBox` tightened to `0 44 480 147` — the previous crop still left a visible band above
+  the drawing; now clamped to the actual content bounds (top = FPX label, bottom = ambient temp).
+
 **v0.5.0-rc.8** — heater symbol + CF sensors + SVG crop (card **3.0.0-rc.6**).
 - Diagram heater/cooler symbol is now a flat **spiral coil** (like the product's coil element),
   placed away from the exchanger and centred under the extract-filter icon.

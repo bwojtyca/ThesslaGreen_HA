@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "3.0.0-rc.6";
+const TG_VERSION = "3.0.0-rc.7";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -638,7 +638,7 @@ class ThesslaGreenCard extends HTMLElement {
     const condSpiral = spiral(362, 154, 7.5, 2.5); // on the supply duct, aligned with the extract filter
     return `
       <div class="diagram">
-        <svg viewBox="0 20 480 172" class="diag" role="img" aria-label="Airflow diagram">
+        <svg viewBox="0 44 480 147" class="diag" role="img" aria-label="Airflow diagram">
           <defs>
             <linearGradient id="bpgrad" gradientUnits="userSpaceOnUse" x1="210" y1="112" x2="270" y2="112">
               <stop offset="0" stop-color="${F.intake}"/><stop offset="1" stop-color="${F.supply}"/>
