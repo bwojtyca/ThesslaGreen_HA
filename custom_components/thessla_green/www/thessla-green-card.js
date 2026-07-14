@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "2.1.1";
+const TG_VERSION = "2.1.2";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -161,7 +161,7 @@ const I18N = {
     name: "Recuperator", power: "Power", season: "Season", winter: "Winter", summer: "Summer",
     intensity: "Intensity", auto: "Auto", manual: "Manual", temporary: "Temporary",
     fn_airing: "Airing", fn_away: "Away", fn_window: "Open window", fn_fireplace: "Fireplace",
-    bypass: "Bypass", enabled: "Enabled", disabled: "Disabled",
+    bypass: "Bypass", enabled: "Enabled", disabled: "Disabled", open: "Open", closed: "Closed", device: "Device",
     filters: "Filters", replace: "Replace", ok: "OK",
     efficiency: "Efficiency", recovery: "Recovery", cop: "COP",
     intake: "INTAKE", extract: "EXTRACT", exhaust: "EXHAUST", supply: "SUPPLY",
@@ -171,7 +171,7 @@ const I18N = {
     name: "Rekuperator", power: "Zasilanie", season: "Sezon", winter: "Zima", summer: "Lato",
     intensity: "Intensywność", auto: "Auto", manual: "Ręczny", temporary: "Chwilowy",
     fn_airing: "Wietrzenie", fn_away: "Pusty dom", fn_window: "Otwarte okno", fn_fireplace: "Kominek",
-    bypass: "Bypass", enabled: "Włączony", disabled: "Wyłączony",
+    bypass: "Bypass", enabled: "Włączony", disabled: "Wyłączony", open: "Otwarty", closed: "Zamknięty", device: "Urządzenie",
     filters: "Filtry", replace: "Wymień", ok: "OK",
     efficiency: "Sprawność", recovery: "Odzysk", cop: "COP",
     intake: "CZERPNIA", extract: "WYWIEW", exhaust: "WYRZUTNIA", supply: "NAWIEW",
@@ -288,6 +288,30 @@ class ThesslaGreenCard extends HTMLElement {
     ev.detail = { entityId: id };
     this.dispatchEvent(ev);
   }
+  // Registry device_id of the ThesslaGreen device (from any resolved entity).
+  _deviceId() {
+    const reg = this._hass && this._hass.entities;
+    if (!reg) return null;
+    const en = this._entities || {};
+    for (const role of ["power", "speed", "temp_supply", "mode_state", "special"]) {
+      const id = en[role];
+      if (id && reg[id] && reg[id].device_id) return reg[id].device_id;
+    }
+    const k = Object.keys(reg).find((x) => reg[x] && reg[x].platform === "thessla_green" && reg[x].device_id);
+    return k ? reg[k].device_id : null;
+  }
+  // Navigate to the device page (all entities); fall back to power more-info.
+  _openDevice() {
+    const id = this._deviceId();
+    if (!id) {
+      this._moreInfo(this._entities && this._entities.power);
+      return;
+    }
+    history.pushState(null, "", `/config/devices/device/${id}`);
+    const ev = new Event("location-changed", { bubbles: true, composed: true });
+    ev.detail = { replace: false };
+    window.dispatchEvent(ev);
+  }
   _icon(path, cls = "") {
     return `<svg class="ic ${cls}" viewBox="0 0 24 24"><path d="${path}"/></svg>`;
   }
@@ -338,7 +362,7 @@ class ThesslaGreenCard extends HTMLElement {
         <div class="wrap" data-off="false" data-accent="${c.accent}">
           <header>
             <button class="dev" data-el="power" title="${t("power")}">${this._icon(ICONS.power)}</button>
-            <span class="title">${c.name || t("name")}</span>
+            <span class="title" data-el="title" title="${t("device")}">${c.name || t("name")}</span>
             <div class="head-right">
               <button class="warn" data-el="warn" hidden>${this._icon(ICONS.alert)}</button>
               <button class="season-pill" data-el="season" title="${t("season")}">
@@ -385,6 +409,7 @@ class ThesslaGreenCard extends HTMLElement {
     this._e = {
       wrap: this.shadowRoot.querySelector(".wrap"),
       power: q("power"),
+      title: q("title"),
       warn: q("warn"),
       season: q("season"),
       seasonIc: q("season-ic"),
@@ -518,6 +543,7 @@ class ThesslaGreenCard extends HTMLElement {
     };
 
     this._e.warn.onclick = () => this._moreInfo(this._warnTarget);
+    this._e.title.onclick = () => this._openDevice();
 
     this._e.season.onclick = () => {
       const next = this._state(en().season) === "Zima" ? "Lato" : "Zima";
@@ -720,8 +746,12 @@ class ThesslaGreenCard extends HTMLElement {
     const bypStatus = this._num(en.bypass_status);
     const bypassOpen = bypStatus !== null ? bypStatus !== 0 : this._isOn(en.bypass_open);
     if (e.bp) e.bp.classList.toggle("show", bypassOpen);
-    e.bypass.classList.toggle("on", bypassEnabled);
-    e.bypassTxt.textContent = bypassEnabled ? t("enabled") : t("disabled");
+    // Chip reflects the LIVE state: green when actually open, neutral when
+    // enabled-but-idle (closed), dimmed when the function is disabled.
+    // Clicking still toggles the bypass function (reg 4320).
+    e.bypass.classList.toggle("on", bypassOpen);
+    e.bypass.classList.toggle("dim", !bypassEnabled);
+    e.bypassTxt.textContent = !bypassEnabled ? t("disabled") : bypassOpen ? t("open") : t("closed");
 
     // Metrics.
     if (this._config.show_metrics) {
@@ -767,7 +797,8 @@ class ThesslaGreenCard extends HTMLElement {
       /* Header */
       header { display:flex; align-items:center; gap:11px; }
       .title { flex:1; font-size:1.15rem; font-weight:600; letter-spacing:.2px; min-width:0;
-               overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+               overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; }
+      .title:hover { text-decoration:underline; text-decoration-thickness:1px; text-underline-offset:3px; }
       button { font:inherit; color:inherit; cursor:pointer; border:none; background:none;
                -webkit-tap-highlight-color:transparent; }
       .dev { width:38px; height:38px; flex:0 0 auto; border-radius:50%; display:grid; place-items:center;
@@ -860,6 +891,7 @@ class ThesslaGreenCard extends HTMLElement {
       .chip.on .ic, .chip.on b { fill:var(--tg-on-accent); color:var(--tg-on-accent); }
       .chip.warn { background:var(--tg-crit); border-color:var(--tg-crit); color:#fff; }
       .chip.warn .ic, .chip.warn b { fill:#fff; color:#fff; }
+      .chip.dim { opacity:.5; }
 
       /* Optimistic-state locking */
       .blocked { opacity:.4 !important; pointer-events:none; }
