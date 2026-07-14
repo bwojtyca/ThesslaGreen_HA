@@ -11,12 +11,29 @@ from .coordinator import ThesslaGreenCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
+# Settable options → register 4224 (specialMode) write code. The panel can only
+# *set* these five canonical functions; "Wietrzenie" is written as 7 (manual).
 MODES = {
     "Brak trybu": 0,
     "Wietrzenie": 7,
     "Pusty Dom": 11,
     "Kominek": 2,
     "Okna": 10,
+}
+
+# Read map: the device may *report* any documented specialMode variant, not just
+# the five we can set. In particular WIETRZENIE has several trigger flavours
+# (3-9 — e.g. 8 = started by the AUTO schedule), so without covering them the
+# entity fell to "unknown" whenever auto-airing kicked in. Collapse every
+# documented code onto one of the settable options so current_option is always
+# valid (and the card lights the right tile). Doc: MODBUS_USER_AirPack_Home reg 4224.
+MODE_READ_MAP = {
+    0: "Brak trybu",
+    2: "Kominek",
+    3: "Wietrzenie", 4: "Wietrzenie", 5: "Wietrzenie", 6: "Wietrzenie",
+    7: "Wietrzenie", 8: "Wietrzenie", 9: "Wietrzenie",
+    10: "Okna",
+    11: "Pusty Dom",
 }
 
 SEASONS = {
@@ -62,7 +79,7 @@ class RekuperatorTrybSelect(SelectEntity):
         self._slave = slave
         self._attr_name = "Rekuperator Tryb"
         self._attr_options = list(MODES.keys())
-        self._value_map = {v: k for k, v in MODES.items()}
+        self._value_map = MODE_READ_MAP  # device value → settable option (covers all variants)
         self._reverse_map = MODES
         self._attr_unique_id = f"thessla_select_{slave}_{self._address}"
 
@@ -103,6 +120,13 @@ class RekuperatorTrybSelect(SelectEntity):
     async def async_update(self):
         """No-op, data provided by coordinator."""
         pass
+
+    @property
+    def extra_state_attributes(self):
+        # Raw specialMode code (4224) so the card can tell schedule/sensor-triggered
+        # airing (codes 3-6/8/9) from a panel-selected function (7/2/10/11).
+        value = self.coordinator.safe_data.holding.get(self._address)
+        return {"special_code": value} if value is not None else {}
 
     async def async_added_to_hass(self):
         self.async_on_remove(self.coordinator.async_add_listener(self.async_write_ha_state))

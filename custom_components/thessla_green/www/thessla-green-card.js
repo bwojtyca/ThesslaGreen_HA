@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "3.0.0-rc.7";
+const TG_VERSION = "3.0.0-rc.8";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -403,6 +403,14 @@ class ThesslaGreenCard extends HTMLElement {
   _activeSpecial() {
     const s = this._state(this._entities.special);
     return s != null && s !== SPECIAL_NONE ? s : null;
+  }
+  // Raw specialMode register code (4224), exposed by the integration as an
+  // attribute. Lets us distinguish schedule/sensor-triggered airing (3-6/8/9)
+  // from a panel-selected function (7/2/10/11). null when unavailable.
+  _specialCode() {
+    const o = this._stateObj(this._entities.special);
+    const c = o && o.attributes ? o.attributes.special_code : null;
+    return c === null || c === undefined ? null : Number(c);
   }
 
   // ---- Render --------------------------------------------------------------
@@ -882,6 +890,11 @@ class ThesslaGreenCard extends HTMLElement {
     const mode = this._mode();
     const special = this._activeSpecial();
     const specialActive = special !== null;
+    // Schedule/sensor-triggered specials (airing variants 3-6/8/9) run *inside*
+    // the base mode — the unit is still in Auto/Manual, so keep that tile lit and
+    // show the function as automatic info. Panel-selected functions (7/2/10/11)
+    // are a deliberate override and replace the base mode as before.
+    const autoTrig = specialActive && [3, 4, 5, 6, 8, 9].includes(this._specialCode());
 
     // Manual intensity (register 4210) — meaningful only in Manual mode.
     const speed = this._num(en.speed);
@@ -907,10 +920,15 @@ class ThesslaGreenCard extends HTMLElement {
       const kind = tl.dataset.kind;
       const val = tl.dataset.val;
       let active = false;
-      if (kind === "special") active = special === val;
-      else if (kind === "mode") active = !specialActive && ((val === "auto" && mode === 0) || (val === "manual" && mode === 1));
-      else if (kind === "temp") {
-        active = !specialActive && mode === 2;
+      if (kind === "special") {
+        const on = special === val;
+        active = on && !autoTrig;                          // filled only when user-selected
+        tl.classList.toggle("auto-trig", on && autoTrig);  // outlined "automatic" style
+      } else if (kind === "mode") {
+        const baseOn = (val === "auto" && mode === 0) || (val === "manual" && mode === 1);
+        active = baseOn && !(specialActive && !autoTrig);  // stays lit under auto-triggered specials
+      } else if (kind === "temp") {
+        active = !(specialActive && !autoTrig) && mode === 2;
         tl.hidden = !active;
       }
       tl.classList.toggle("active", active);
@@ -925,7 +943,10 @@ class ThesslaGreenCard extends HTMLElement {
     else if (!powerOn) status = t("off");
     else if (specialActive) {
       const fn = SPECIAL_FUNCTIONS.find((f) => f.option === special);
-      status = `${fn ? t(fn.key) : special} · ${t("active")}${info}`;
+      const fnLabel = fn ? t(fn.key) : special;
+      // Auto-triggered airing keeps the base mode in front: "Auto · Wietrzenie · …".
+      const base = autoTrig ? (mode === 0 ? `${t("auto")} · ` : mode === 1 ? `${t("manual")} · ` : "") : "";
+      status = `${base}${fnLabel} · ${t("active")}${info}`;
     } else if (mode === 1) {
       // Manual: prefer the effective %, else the manual setpoint from the slider.
       const man = effPct !== null ? info : speed === null ? "" : ` · ${Math.round(speedPct)}%`;
@@ -1156,6 +1177,11 @@ class ThesslaGreenCard extends HTMLElement {
       .mtile:hover { border-color:var(--tg-accent); }
       .mtile.active { background:var(--tg-accent); color:var(--tg-on-accent); border-color:var(--tg-accent); }
       .mtile.active .ic { fill:var(--tg-on-accent); }
+      /* Automatically-triggered special (e.g. scheduled airing): active but not
+         user-selected — outlined accent instead of filled, base mode stays lit. */
+      .mtile.auto-trig { background:transparent; color:var(--tg-accent); border-color:var(--tg-accent); border-style:dashed; }
+      .mtile.auto-trig .ic { fill:var(--tg-accent); }
+      .mtile.auto-trig .msub { opacity:.9; }
       .mtile.ro { pointer-events:none; background:transparent; border-color:var(--tg-summer); color:var(--tg-summer); }
       .mtile.ro.active { background:transparent; }
       .mtile.ro.active .ic { fill:var(--tg-summer); }

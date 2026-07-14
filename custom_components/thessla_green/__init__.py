@@ -16,7 +16,7 @@ PLATFORMS = ["sensor", "switch", "binary_sensor", "select", "number"]
 # Lovelace card bundled with the integration. It is served from the integration
 # folder and auto-registered as a frontend JS module, so the user does not have
 # to copy the file to /config/www/ or add a dashboard resource by hand.
-CARD_VERSION = "3.0.0-rc.7"  # bump to bust the browser cache after card changes
+CARD_VERSION = "3.0.0-rc.8"  # bump to bust the browser cache after card changes
 CARD_URL = f"/{DOMAIN}/thessla-green-card.js"
 CARD_PATH = os.path.join(os.path.dirname(__file__), "www", "thessla-green-card.js")
 

@@ -1,5 +1,18 @@
 # Fork changes — extra Modbus registers
 
+**v0.5.0-rc.10** — operating-mode "unknown" fix + Auto-airing display (card **3.0.0-rc.8**).
+- **"Rekuperator Tryb" no longer goes `unknown`.** The select mapped only 5 of the documented
+  `specialMode` (4224) codes; when the schedule started airing in Auto it reported **8 =
+  WIETRZENIE (tryb AUTOMATYCZNY)**, which wasn't mapped → `unknown`. Added a full read map that
+  collapses every documented code (incl. the 3–9 airing variants) onto one of the five settable
+  options; writing is unchanged. The raw code is now also exposed as a `special_code` attribute.
+- **Auto stays Auto while a scheduled function runs.** Base mode (4208) and special function (4224)
+  are independent on the device — airing doesn't leave Auto. The card no longer blanks the Auto/Manual
+  tile when a *schedule/sensor-triggered* special is active: the base-mode tile stays lit, the special
+  shows as a dashed "automatic" tile, and the status line reads e.g. **"Auto · Wietrzenie · aktywne"**.
+  A *panel-selected* function (Kominek/Okna/Pusty dom/manual airing) still replaces the base mode as
+  before.
+
 **v0.5.0-rc.9** — options-flow 500 fix + tighter SVG crop (card **3.0.0-rc.7**).
 - **Options flow no longer 500s.** The handler set `self.config_entry` in its `__init__`, which HA
   deprecated (2024.11) and later removed — on current cores that assignment raises, so opening the
