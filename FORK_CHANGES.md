@@ -1,5 +1,13 @@
 # Fork changes — extra Modbus registers
 
+**v0.4.1** — more read-only data, no card change. Device page now shows **firmware**
+(input regs 0/1/4 → e.g. `4.92.7`) and **serial number** (input regs 24-29) via `device_info`
+(merged onto the shared device by the generic sensors). New sensors: **filter wear %**
+(4482/4483 — complements "days to change"), **speed presets 1/2/3** (4216-4218, e.g. 30/60/100 %),
+and **Temporary-mode target supply temp** (4213, ×0.5 °C). All live-confirmed on the AirPack 800v.
+Also adds a **Reconfigure flow** — host / port / slave / scan-interval can now be edited after
+setup (integration entry ⋮ → *Reconfigure*), instead of having to delete and re-add the device.
+
 **v0.4.0** — more Modbus data. New read-only sensors for the **bypass configuration** (min /
 free-heating / free-cooling thresholds ×0.5 °C, bypass user-mode, flow-differentiation %,
 intensity %) and for the **special-function configuration** (fireplace intensity % + duration min,

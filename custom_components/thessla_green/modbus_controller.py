@@ -84,14 +84,19 @@ class ThesslaGreenModbusController:
             (8202, 1),   # 8202 S10 → fire alarm (P.POŻ) tripped
             (8206, 2),   # 8206 S14 + 8207 S15 → heater anti-freeze protection tripped
             (8215, 4),   # 8215-8218 S23-S26 → temperature-sensor faults
+            (4213, 1),   # 4213 supplyAirTemperatureTemporary → target supply temp in Temporary mode (x0.5 °C)
+            (4216, 3),   # 4216-4218 fanSpeed1/2/3Coef → speed-preset intensities (%)
+            (4482, 2),   # 4482/4483 cfgSZF_FN/FW → supply/exhaust filter wear (%)
         ]
         # Input registers (temperatures, ×0.1 °C). Kept as separate blocks so an
         # unsupported optional sensor (TN2/GWC on units without them) can't take
         # the core temperatures offline — the tolerant reader skips only its block.
         self._input_blocks = [
+            (0, 5),    # 0 VERSION_MAJOR + 1 VERSION_MINOR + (2,3 reserved) + 4 VERSION_PATCH → firmware
             (16, 4),   # 16 czerpnia + 17 nawiew + 18 wywiew + 19 za FPX
             (20, 2),   # 20 TN2 (kanałowa) + 21 GWC — read 0 / skipped if not installed
             (22, 1),   # 22 otoczenie (TO)
+            (24, 6),   # 24-29 serial_number_1..6 → controller serial number
         ]
         # Coils: 9 bypass actuator output, 10 work-confirmation (info), 11 fan-power relay.
         self._coil_blocks = [(9, 3)]

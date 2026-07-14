@@ -61,7 +61,38 @@ SENSORS = [
     {"name": "Rekuperator Kominek czas", "address": 4237, "input_type": "holding", "unit": "min", "icon": "mdi:timer-outline"},
     {"name": "Rekuperator Pusty dom intensywność", "address": 4232, "input_type": "holding", "unit": "%", "icon": "mdi:home-export-outline"},
     {"name": "Rekuperator Okno intensywność", "address": 4239, "input_type": "holding", "unit": "%", "icon": "mdi:window-open-variant"},
+    # Zużycie filtrów (%) — uzupełnienie do "dni do wymiany"
+    {"name": "Rekuperator Filtr nawiew zużycie", "address": 4482, "input_type": "holding", "unit": "%", "icon": "mdi:air-filter"},
+    {"name": "Rekuperator Filtr wywiew zużycie", "address": 4483, "input_type": "holding", "unit": "%", "icon": "mdi:air-filter"},
+    # Presety intensywności biegów 1/2/3
+    {"name": "Rekuperator Bieg 1 intensywność", "address": 4216, "input_type": "holding", "unit": "%", "icon": "mdi:speedometer-slow"},
+    {"name": "Rekuperator Bieg 2 intensywność", "address": 4217, "input_type": "holding", "unit": "%", "icon": "mdi:speedometer-medium"},
+    {"name": "Rekuperator Bieg 3 intensywność", "address": 4218, "input_type": "holding", "unit": "%", "icon": "mdi:speedometer"},
+    # Zadana temperatura nawiewu w trybie CHWILOWYM (x0.5 °C)
+    {"name": "Rekuperator Temperatura zadana chwilowy", "address": 4213, "input_type": "holding", "scale": 0.5, "precision": 1, "unit": UnitOfTemperature.CELSIUS, "icon": "mdi:thermometer-lines"},
 ]
+
+def _read_device_metadata(coordinator: ThesslaGreenCoordinator) -> dict:
+    """Build sw_version / serial_number for the HA device from input registers.
+
+    Firmware: input regs 0 (major), 1 (minor), 4 (patch) -> "MM.mm.pp".
+    Serial:   input regs 24-29, low byte of each -> 12 hex digits grouped in
+              three quads (per the Modbus protocol doc).
+    Both are constant; the coordinator's first refresh has already run before
+    entities are created, so the values are available here. A missing register
+    just omits its key (device page falls back to blank).
+    """
+    inp = coordinator.safe_data.input
+    meta: dict = {}
+    major, minor, patch = inp.get(0), inp.get(1), inp.get(4)
+    if None not in (major, minor, patch):
+        meta["sw_version"] = f"{major}.{minor}.{patch}"
+    serial_regs = [inp.get(a) for a in range(24, 30)]
+    if None not in serial_regs:
+        hexstr = "".join(f"{r & 0xFF:02x}" for r in serial_regs)
+        meta["serial_number"] = f"{hexstr[0:4]} {hexstr[4:8]} {hexstr[8:12]}"
+    return meta
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -115,6 +146,9 @@ class ModbusGenericSensor(SensorEntity):
             "name": "Rekuperator Thessla",
             "manufacturer": "Thessla Green",
             "model": "Modbus Rekuperator",
+            # Firmware + serial from input regs 0/1/4 + 24-29 (merged into the
+            # shared device by HA; only the generic sensors carry them).
+            **_read_device_metadata(coordinator),
         }
 
     @property
