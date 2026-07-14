@@ -1,5 +1,11 @@
 # Fork changes — extra Modbus registers
 
+**v0.5.0-rc.6** — tile tweaks + temp sentinel guard (card **3.0.0-rc.4**).
+- Mode tiles: **Auto** no longer shows a % (it's schedule-driven, no fixed setpoint); **Otwarte okno**
+  shows **0%** (the function stops the supply fan; `openWindowCoef` reads 101 = out of range).
+- Sensor guard: raw `0x8000` (32768) is Thessla's "no reading / sensor error" sentinel — without it a
+  faulty/absent temperature probe rendered as ~-3276.8 °C. Now returned as unavailable.
+
 **v0.5.0-rc.5** — capability detection (card unchanged, 3.0.0-rc.3).
 - Reads `271 constant_flow_active` + `4704 postHeater_on` to detect what the unit actually has.
 - Model-irrelevant entities are created **disabled by default** instead of cluttering the device:

@@ -165,6 +165,12 @@ class ModbusGenericSensor(SensorEntity):
         if raw_value is None:
             return None
 
+        # 0x8000 (32768) is Thessla's "no reading / sensor error" sentinel for the
+        # temperature inputs; without this guard a faulty/absent probe would render
+        # as ~-3276.8 °C (signed -32768 × 0.1). Treat it as unavailable.
+        if raw_value == 0x8000:
+            return None
+
         # Konwersja na signed int16
         raw = raw_value
         if raw > 0x7FFF:

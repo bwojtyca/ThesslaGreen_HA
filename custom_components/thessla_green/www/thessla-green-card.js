@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "3.0.0-rc.3";
+const TG_VERSION = "3.0.0-rc.4";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -309,14 +309,19 @@ class ThesslaGreenCard extends HTMLElement {
     const pct = (id) => { const v = this._num(id); return v === null ? null : `${Math.round(v)}%`; };
     const mins = (id) => { const v = this._num(id); return v === null ? null : `${Math.round(v)} min`; };
     if (kind === "mode" && val === "manual") return pct(en.speed) || "";
-    if (kind === "mode" && val === "auto") { const p = this._effPct(); return p === null ? "" : `${p}%`; }
+    if (kind === "mode" && val === "auto") return ""; // schedule-driven — no fixed setpoint
     if (kind === "temp") return pct(en.speed_temp) || "";
     if (kind === "special") {
       const fn = SPECIAL_FUNCTIONS.find((f) => f.option === val);
       if (!fn) return "";
-      // hide out-of-range intensity (e.g. openWindow reads 101 = not set / sentinel)
-      const p = fn.pct ? this._num(en[fn.pct]) : null;
-      const pctStr = p !== null && p <= (fn.max || 150) ? `${Math.round(p)}%` : null;
+      let pctStr = null;
+      if (fn.pct) {
+        const p = this._num(en[fn.pct]);
+        if (p !== null) {
+          // openWindow reads 101 (out of 0–100): the function stops the supply fan → 0%
+          pctStr = p <= (fn.max || 150) ? `${Math.round(p)}%` : fn.option === "Okna" ? "0%" : null;
+        }
+      }
       return [pctStr, fn.time && mins(en[fn.time])].filter(Boolean).join(" · ");
     }
     return "";
