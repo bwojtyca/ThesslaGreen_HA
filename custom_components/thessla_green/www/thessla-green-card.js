@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "3.0.0-rc.5";
+const TG_VERSION = "3.0.0-rc.6";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -625,9 +625,20 @@ class ThesslaGreenCard extends HTMLElement {
       [F.supply, [[276, 133], [288, 154], [474, 154]]],
     ];
     const ductD = (p) => roundPath(p.map(([x, y]) => ({ x, y })), 5, false);
+    // Flat spiral ("ślimak") heating-coil icon, like the product's element.
+    const spiral = (cx, cy, rMax, turns) => {
+      const steps = Math.ceil(turns * 22);
+      let d = "";
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps, a = t * turns * 2 * Math.PI, r = rMax * t;
+        d += (i === 0 ? "M" : "L") + `${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)}`;
+      }
+      return d;
+    };
+    const condSpiral = spiral(362, 154, 7.5, 2.5); // on the supply duct, aligned with the extract filter
     return `
       <div class="diagram">
-        <svg viewBox="0 0 480 200" class="diag" role="img" aria-label="Airflow diagram">
+        <svg viewBox="0 20 480 172" class="diag" role="img" aria-label="Airflow diagram">
           <defs>
             <linearGradient id="bpgrad" gradientUnits="userSpaceOnUse" x1="210" y1="112" x2="270" y2="112">
               <stop offset="0" stop-color="${F.intake}"/><stop offset="1" stop-color="${F.supply}"/>
@@ -707,10 +718,10 @@ class ThesslaGreenCard extends HTMLElement {
                exchanger. Lights warm when heating, cool when cooling, dim when idle.
                Hidden entirely when the unit has neither. -->
           <g data-mref="heater_pct" class="grp" data-el="cond">
-            <rect x="334" y="146" width="34" height="16" fill="${bg}"/>
-            <polyline class="cond-coil" data-el="cond-coil" points="337,154 342,148 351,160 360,148 365,154"/>
-            <text class="sub" data-el="d-cond" x="351" y="171" text-anchor="middle"></text>
-            <rect class="hitbox" x="334" y="146" width="34" height="26"/>
+            <rect x="352" y="143" width="20" height="22" fill="${bg}"/>
+            <path class="cond-coil" data-el="cond-coil" d="${condSpiral}"/>
+            <text class="sub" data-el="d-cond" x="362" y="172" text-anchor="middle"></text>
+            <rect class="hitbox" x="352" y="142" width="20" height="32"/>
           </g>
 
           <!-- Stream names -->
@@ -1104,7 +1115,7 @@ class ThesslaGreenCard extends HTMLElement {
       .diag .ah { fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
       .diag .track { fill:none; stroke-width:2.2; opacity:.3; stroke-linecap:round; stroke-linejoin:round; }
       .diag .coil { fill:none; stroke:var(--secondary-text-color); stroke-width:2; stroke-linejoin:round; opacity:.7; }
-      .diag .cond-coil { fill:none; stroke:var(--secondary-text-color); stroke-width:2; stroke-linecap:round; stroke-linejoin:round; opacity:.5; transition:.3s; }
+      .diag .cond-coil { fill:none; stroke:var(--secondary-text-color); stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; opacity:.5; transition:.3s; }
       .diag .cond-coil.heat { stroke:var(--tg-warn); opacity:1; }
       .diag .cond-coil.cool { stroke:var(--tg-winter); opacity:1; }
       .diag .filt-b { fill:none; stroke:var(--secondary-text-color); stroke-width:1.4; stroke-linecap:round; }

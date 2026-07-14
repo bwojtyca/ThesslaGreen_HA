@@ -20,8 +20,10 @@ BINARY_SENSORS = [
 
     # Odczyt z HOLDING REGISTERS
     {"name": "Rekuperator Alarm", "address": 8192, "input_type": "holding", "device_class": "problem"},
-    {"name": "Rekuperator Awaria CF Nawiewu", "address": 8330, "input_type": "holding", "device_class": "problem", "requires": "cf"},
-    {"name": "Rekuperator Awaria CF Wywiewu", "address": 8331, "input_type": "holding", "device_class": "problem", "requires": "cf"},
+    # CF (Constant Flow) fault codes — niszowe, dotyczą tylko jednostek z modułem CF.
+    # Wyłączone domyślnie (detekcja CF przez Modbus jest zawodna: 271 odpowiada 0 też bez modułu).
+    {"name": "Rekuperator Awaria CF Nawiewu", "address": 8330, "input_type": "holding", "device_class": "problem", "enabled_default": False},
+    {"name": "Rekuperator Awaria CF Wywiewu", "address": 8331, "input_type": "holding", "device_class": "problem", "enabled_default": False},
     {"name": "Rekuperator Awaria Wentylatora Nawiewu", "address": 8222, "input_type": "holding", "device_class": "problem"},
     {"name": "Rekuperator Awaria Wentylatora Wywiewu", "address": 8223, "input_type": "holding", "device_class": "problem"},
 
@@ -61,7 +63,8 @@ async def async_setup_entry(
     for sensor in BINARY_SENSORS:
         cfg = dict(sensor)
         req = cfg.pop("requires", None)  # capability tag → disabled by default if the unit lacks it
-        enabled = True if req is None else bool(caps.get(req))
+        ed = cfg.pop("enabled_default", None)  # explicit override (e.g. niche diagnostics off by default)
+        enabled = ed if ed is not None else (True if req is None else bool(caps.get(req)))
         entities.append(ModbusBinarySensor(coordinator=coordinator, slave=slave, enabled_default=enabled, **cfg))
 
     async_add_entities(entities)

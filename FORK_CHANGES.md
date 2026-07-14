@@ -1,5 +1,14 @@
 # Fork changes — extra Modbus registers
 
+**v0.5.0-rc.8** — heater symbol + CF sensors + SVG crop (card **3.0.0-rc.6**).
+- Diagram heater/cooler symbol is now a flat **spiral coil** (like the product's coil element),
+  placed away from the exchanger and centred under the extract-filter icon.
+- SVG `viewBox` cropped (`0 20 480 172`) to remove the excess padding above and below the drawing.
+- **CF (Constant-Flow) fault sensors** (8330/8331) are now **disabled by default unconditionally** —
+  CF detection over Modbus is unreliable (reg 271 answers 0 even without the module), so instead of
+  guessing we ship them off; enable them manually on units that actually have CF. Dropped the
+  271-based capability probe.
+
 **v0.5.0-rc.7** — secondary heater/cooler on the diagram (card **3.0.0-rc.5**).
 - New coil on the supply (nawiew) duct, after the exchanger, driven by `dac_heater` (1282) /
   `dac_cooler` (1283): dim when idle, **warm + %** when heating, **cool + %** when cooling.
