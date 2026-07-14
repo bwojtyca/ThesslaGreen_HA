@@ -62,7 +62,8 @@ class RekuperatorPredkoscNumber(NumberEntity):
         try:
             success = await self.coordinator.controller.write_register(self._address, int(value))
             if success:
-                await self.coordinator.async_request_refresh()
+                self.coordinator.apply_optimistic(self._address, int(value))  # instant UI
+                await self.coordinator.async_request_refresh()                 # coalesced reconcile
         except Exception as e:
             _LOGGER.exception(f"Exception during setting prędkość: {e}")
 
@@ -109,7 +110,8 @@ class RekuperatorPredkoscChwilowaNumber(NumberEntity):
         try:
             success = await self.coordinator.controller.write_register(self._address, int(value))
             if success:
-                await self.coordinator.async_request_refresh()
+                self.coordinator.apply_optimistic(self._address, int(value))  # instant UI
+                await self.coordinator.async_request_refresh()                 # coalesced reconcile
         except Exception as e:
             _LOGGER.exception(f"Exception during setting prędkość chwilowa: {e}")
 

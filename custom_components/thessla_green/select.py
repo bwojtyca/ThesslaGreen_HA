@@ -112,7 +112,8 @@ class RekuperatorTrybSelect(SelectEntity):
 
             success = await self.coordinator.controller.write_register(self._address, code)
             if success:
-                await self.coordinator.async_request_refresh()
+                self.coordinator.apply_optimistic(self._address, code)  # instant UI
+                await self.coordinator.async_request_refresh()           # coalesced reconcile
 
         except Exception as e:
             _LOGGER.exception(f"Exception during tryb selection: {e}")
@@ -173,7 +174,8 @@ class RekuperatorSezonSelect(SelectEntity):
 
             success = await self.coordinator.controller.write_register(self._address, code)
             if success:
-                await self.coordinator.async_request_refresh()
+                self.coordinator.apply_optimistic(self._address, code)  # instant UI
+                await self.coordinator.async_request_refresh()           # coalesced reconcile
 
         except Exception as e:
             _LOGGER.exception(f"Exception during sezon selection: {e}")
@@ -229,7 +231,8 @@ class RekuperatorErvTrybSelect(SelectEntity):
                 self._address, code
             )
             if success:
-                await self.coordinator.async_request_refresh()
+                self.coordinator.apply_optimistic(self._address, code)  # instant UI
+                await self.coordinator.async_request_refresh()           # coalesced reconcile
 
         except Exception as e:
             _LOGGER.exception(f"Exception during ERV mode selection: {e}")
@@ -288,7 +291,8 @@ class RekuperatorKomfortSelect(SelectEntity):
                 self._address, code
             )
             if success:
-                await self.coordinator.async_request_refresh()
+                self.coordinator.apply_optimistic(self._address, code)  # instant UI
+                await self.coordinator.async_request_refresh()           # coalesced reconcile
 
         except Exception as e:
             _LOGGER.exception(f"Exception during ECO/KOMFORT selection: {e}")

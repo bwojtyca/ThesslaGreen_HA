@@ -35,7 +35,11 @@ class ThesslaGreenModbusController:
             port=self._port,
             reconnect_delay=1,
             reconnect_delay_max=300,
-            retries=10,
+            # A full poll is ~35 sequential requests; 10 retries per request could
+            # stall the whole cycle (and any queued write) for a long time when the
+            # link hiccups. The reader is already tolerant (skips a failed block), so
+            # keep retries low for snappy polls + writes.
+            retries=2,
         )
         self._controller_lock = asyncio.Lock()
 
@@ -43,60 +47,42 @@ class ThesslaGreenModbusController:
         self._last_update_interval: float = 0
 
         # Each tuple = (start_address, register_count) → one "read holding registers"
-        # request per block. fetch_data() reads them tolerantly (a block the device
-        # does not support is skipped, not fatal).
+        # request. Blocks are STATICALLY widened to span each function's whole
+        # register run in a single read; gap registers inside a run are read too but
+        # harmless (entities only look up known addresses). Every range below was
+        # confirmed to read back with NO illegal-address holes on the AirPack 800v
+        # (tools/scan_ranges.py, 2026-07-14) — if a future/other unit drops a block,
+        # split that one entry. fetch_data() reads tolerantly (skips a failing block).
         self._holding_blocks = [
-            # --- original registers ---
-            (256, 2),    # 256 supplyAirFlow + 257 exhaustAirFlow — current airflow (m3/h)
-            (4192, 2),   # 4192 antifreezMode (FPX active flag) + 4193 (reserved)
-            (4198, 1),   # 4198 antifreezStage — FPX anti-freeze stage/mode
-            (4208, 3),   # 4208 mode (0=Auto/1=Manual/2=Temp) + 4209 seasonMode (Lato/Zima) + 4210 airFlowRateManual
-            (4210, 1),   # 4210 airFlowRateManual — manual intensity % (note: already in the 4208 block)
-            (4224, 1),   # 4224 specialMode — special function (Wietrzenie/Pusty Dom/Kominek/Okna)
-            (4320, 1),   # 4320 bypassOff — bypass FUNCTION enable (0=enabled, 1=disabled)
-            (4387, 1),   # 4387 onOffPanelMode — device ON/OFF
-            (8192, 2),   # 8192 alarm (any "E" warning) + 8193 error (any "S" blocking error)
-            (8208, 1),   # 8208 S16 — heater thermal protection tripped
-            (8222, 2),   # 8222 S30 + 8223 S31 — supply/exhaust fan not working
-            (8330, 2),   # 8330 E138 + 8331 E139 — supply/exhaust CF (constant-flow) sensor fault
-            (4704, 1),   # 4704 postHeater_on — secondary/post-heater status (exposed as "ERV")
-            (4711, 1),   # 4711 cfgPostHeaterMode — post-heater / ERV mode
-            (8444, 1),   # 8444 E252 — filter change required
-            (4304, 2),   # 4304 comfortModePanel (EKO/KOMFORT) + 4305 comfortMode (current status)
-            # --- extended registers (fork additions; all live-confirmed on AirPack 800v) ---
-            (1280, 4),   # 1280/1281 dac_supply/exhaust + 1282/1283 heater/cooler → output % (0..4095)
-            (4212, 1),   # 4212 supplyAirTemperatureManual → target supply temp (x0.5 °C)
-            (4230, 1),   # 4230 airingCoef → "Wietrzenie" configured intensity (%)
-            (4233, 1),   # 4233 airingPanelModeTime → "Wietrzenie" duration (min)
-            (4330, 1),   # 4330 bypassMode → CURRENT bypass status (0=inactive, 1/2=active)
-            (4354, 2),   # 4354/4355 nominalSupply/ExhaustAirFlow → 100% reference (m3/h)
-            (4384, 1),   # 4384 stopAhuCode → blocking S-alarm number (0=none)
-            (4401, 1),   # 4401 airFlowRateTemporary → temporary-mode intensity (%)
-            (4660, 1),   # 4660 filter_supply_date_limit → days to supply filter change
-            (4662, 1),   # 4662 filter_exhaust_date_limit → days to exhaust filter change
-            (8190, 1),   # 8190 requiredTemp → KOMFORT target temp (x0.5 °C)
-            (4321, 3),   # 4321 minBypassTemp + 4322 free-heating + 4323 free-cooling (x0.5 °C) — read-only config
-            (4331, 1),   # 4331 bypassUserMode (read-only; 4332/4333 are mode-2/3 only — not exposed)
-            (4228, 1),   # 4228 fireplaceSupplyCoef → "Kominek" intensity (%)
-            (4237, 1),   # 4237 fireplaceModeTime → "Kominek" duration (min)
-            (4232, 1),   # 4232 emptyHouseCoef → "Pusty dom" intensity (%)
-            (4239, 1),   # 4239 openWindowCoef → "Otwarte okno" intensity (%)
-            (8202, 1),   # 8202 S10 → fire alarm (P.POŻ) tripped
-            (8206, 2),   # 8206 S14 + 8207 S15 → heater anti-freeze protection tripped
-            (8215, 4),   # 8215-8218 S23-S26 → temperature-sensor faults
-            (4213, 1),   # 4213 supplyAirTemperatureTemporary → target supply temp in Temporary mode (x0.5 °C)
-            (4216, 3),   # 4216-4218 fanSpeed1/2/3Coef → speed-preset intensities (%)
-            (4482, 2),   # 4482/4483 cfgSZF_FN/FW → supply/exhaust filter wear (%)
+            (256, 2),    # 256/257 supply/exhaust airflow (m3/h)
+            (1280, 4),   # 1280-1283 dac supply/exhaust/heater/cooler output % (0..4095)
+            (4192, 7),   # 4192 FPX flag .. 4198 FPX anti-freeze stage
+            (4208, 11),  # 4208 mode + 4209 season + 4210 manual% + 4212/4213 target temps + 4216-4218 speed presets
+            (4224, 16),  # 4224 specialMode + 4228/4230/4232/4233/4237/4239 special-function coefs & times
+            (4304, 2),   # 4304/4305 comfort panel (EKO/KOMFORT) + status
+            (4320, 12),  # 4320 bypass enable + 4321-4323 thresholds + 4330 status + 4331 user-mode
+            (4354, 2),   # 4354/4355 nominal airflow (100% reference)
+            (4384, 4),   # 4384 blocking S-alarm code .. 4387 device ON/OFF
+            (4401, 1),   # 4401 temporary-mode intensity %
+            (4482, 2),   # 4482/4483 supply/exhaust filter wear %
+            (4660, 3),   # 4660/4662 supply/exhaust days-to-filter-change
+            (4704, 8),   # 4704 post-heater status .. 4711 post-heater/ERV mode
+            (8190, 1),   # 8190 KOMFORT target temp (block boundary: 8190-91 and 8192+ can't share a read)
+            (8192, 2),   # 8192 alarm (E) + 8193 error (S)
+            (8202, 17),  # 8202 P.POŻ .. 8206-8208 anti-freeze/thermal .. 8215-8218 sensor faults (device caps this block at ~8218)
+            (8222, 2),   # 8222/8223 S30/S31 supply/exhaust fan faults
+            (8330, 2),   # 8330/8331 CF sensor faults
+            (8444, 1),   # 8444 filter change required
         ]
         # Input registers (temperatures, ×0.1 °C). Kept as separate blocks so an
         # unsupported optional sensor (TN2/GWC on units without them) can't take
         # the core temperatures offline — the tolerant reader skips only its block.
+        # 0-4 firmware, then a gap (5-11 illegal), then one contiguous readable run
+        # 16-29 (temps 16-19, TN2/GWC 20/21 = 0 when absent, TO 22, serial 24-29) —
+        # confirmed no illegal holes on the 800v (tools/scan_ranges.py), so merged.
         self._input_blocks = [
-            (0, 5),    # 0 VERSION_MAJOR + 1 VERSION_MINOR + (2,3 reserved) + 4 VERSION_PATCH → firmware
-            (16, 4),   # 16 czerpnia + 17 nawiew + 18 wywiew + 19 za FPX
-            (20, 2),   # 20 TN2 (kanałowa) + 21 GWC — read 0 / skipped if not installed
-            (22, 1),   # 22 otoczenie (TO)
-            (24, 6),   # 24-29 serial_number_1..6 → controller serial number
+            (0, 5),    # 0/1/4 firmware major/minor/patch (2,3 reserved)
+            (16, 14),  # 16-19 temps (czerpnia/nawiew/wywiew/za-FPX) + 20/21 TN2/GWC + 22 TO + 24-29 serial
         ]
         # Coils: 9 bypass actuator output, 10 work-confirmation (info), 11 fan-power relay.
         self._coil_blocks = [(9, 3)]
@@ -105,6 +91,18 @@ class ThesslaGreenModbusController:
         async with self._controller_lock:
             _LOGGER.info("Stopping Modbus controller for %s:%d", self._host, self._port)
             self._client.close()
+
+    async def _try_read_regs(self, func, start: int, count: int):
+        """Read one register block; return the register list or None on error."""
+        try:
+            result = await func(address=start, count=count, device_id=self._slave)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug("Read %d-%d exception (skipped): %s", start, start + count - 1, e)
+            return None
+        if result is None or result.isError():
+            _LOGGER.debug("Read %d-%d not available (skipped)", start, start + count - 1)
+            return None
+        return result.registers
 
     async def fetch_data(self) -> ControllerData:
         async with self._controller_lock:
@@ -122,41 +120,26 @@ class ThesslaGreenModbusController:
 
             _LOGGER.debug("Reading all register blocks for slave %d", self._slave)
 
-            # Per-block reads are TOLERANT: a block that the device does not
-            # support (illegal address) or that errors transiently is skipped
-            # instead of failing the whole update — so optional/model-specific
-            # registers can't take the whole integration offline. A real
-            # connection failure makes every block fail, which we detect below.
+            # Per-block reads are TOLERANT: a block the device does not support
+            # (illegal address) or that errors transiently is skipped instead of
+            # failing the whole update — so optional/model-specific registers can't
+            # take the integration offline. A real connection failure makes every
+            # block fail, which we detect below.
             read_ok = 0
 
-            # Read holding registers
             for start, count in self._holding_blocks:
-                try:
-                    result = await self._client.read_holding_registers(address=start, count=count,
-                                                                        device_id=self._slave)
-                except Exception as e:
-                    _LOGGER.debug("Holding %d-%d read exception (skipped): %s", start, start + count - 1, e)
-                    continue
-                if result is None or result.isError():
-                    _LOGGER.debug("Holding %d-%d not available (skipped)", start, start + count - 1)
-                    continue
-                for i, val in enumerate(result.registers):
-                    data_holding[start + i] = val
-                read_ok += len(result.registers)
+                regs = await self._try_read_regs(self._client.read_holding_registers, start, count)
+                if regs is not None:
+                    for i, val in enumerate(regs):
+                        data_holding[start + i] = val
+                    read_ok += len(regs)
 
-            # Read input registers
             for start, count in self._input_blocks:
-                try:
-                    result = await self._client.read_input_registers(address=start, count=count, device_id=self._slave)
-                except Exception as e:
-                    _LOGGER.debug("Input %d-%d read exception (skipped): %s", start, start + count - 1, e)
-                    continue
-                if result is None or result.isError():
-                    _LOGGER.debug("Input %d-%d not available (skipped)", start, start + count - 1)
-                    continue
-                for i, val in enumerate(result.registers):
-                    data_input[start + i] = val
-                read_ok += len(result.registers)
+                regs = await self._try_read_regs(self._client.read_input_registers, start, count)
+                if regs is not None:
+                    for i, val in enumerate(regs):
+                        data_input[start + i] = val
+                    read_ok += len(regs)
 
             # Read coils
             for start, count in self._coil_blocks:

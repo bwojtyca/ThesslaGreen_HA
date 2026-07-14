@@ -1,5 +1,17 @@
 # Fork changes — extra Modbus registers
 
+**v0.5.0-rc.17** — Modbus communication optimised (card unchanged, 3.0.0-rc.14).
+- **Writes feel instant.** After a successful write the value is now pushed into the cache
+  optimistically (`coordinator.apply_optimistic`) so the UI updates immediately, instead of waiting
+  for a full re-poll of every register. The scheduled poll reconciles derived values afterwards.
+- **~46% fewer Modbus round-trips per poll** (41 → 22): register blocks were statically widened to
+  span each function's whole run in a single read. Every widened block was **confirmed live** against
+  the 800v with no illegal-address holes (`tools/scan_ranges.py` + `tools/validate_blocks.py`); the
+  8xxx fault region keeps a couple of splits where the device caps multi-register reads.
+- **Client `retries` 10 → 2** — a single flaky transaction could otherwise stall the whole locked
+  poll (and any queued write) for seconds; the tolerant reader + 30 s re-poll already cover a
+  skipped block.
+
 **v0.5.0-rc.16** — icon + layout polish (card **3.0.0-rc.14**).
 - **Bypass section** trimmed to **two rows** (config now sits next to the title; state + reason below)
   and given a clearer icon (a "step-over" arc = air routed around the exchanger). New **`show_bypass`**
