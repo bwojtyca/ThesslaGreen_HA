@@ -1,5 +1,11 @@
 # Fork changes — extra Modbus registers
 
+**v0.5.0-rc.7** — secondary heater/cooler on the diagram (card **3.0.0-rc.5**).
+- New coil on the supply (nawiew) duct, after the exchanger, driven by `dac_heater` (1282) /
+  `dac_cooler` (1283): dim when idle, **warm + %** when heating, **cool + %** when cooling.
+  Clickable → heater sensor. Hidden entirely when the unit has neither. New roles `heater_pct`,
+  `cooler_pct`.
+
 **v0.5.0-rc.6** — tile tweaks + temp sentinel guard (card **3.0.0-rc.4**).
 - Mode tiles: **Auto** no longer shows a % (it's schedule-driven, no fixed setpoint); **Otwarte okno**
   shows **0%** (the function stops the supply fan; `openWindowCoef` reads 101 = out of range).

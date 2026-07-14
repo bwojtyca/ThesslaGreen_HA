@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "3.0.0-rc.4";
+const TG_VERSION = "3.0.0-rc.5";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -61,6 +61,8 @@ const DEFAULT_ENTITIES = {
   bypass_heat: `sensor.${DEV}rekuperator_bypass_prog_grzanie`, // 4322: free-heating activation °C
   bypass_min: `sensor.${DEV}rekuperator_bypass_prog_min`, // 4321: min outdoor temp for bypass °C
   temp_comfort: `sensor.${DEV}rekuperator_temperatura_komfort`, // 8190: KOMFORT setpoint (bypass ref)
+  heater_pct: `sensor.${DEV}rekuperator_nagrzewnica`, // 1282: secondary/duct heater output %
+  cooler_pct: `sensor.${DEV}rekuperator_chlodnica`, // 1283: duct cooler output %
   // per-mode configured intensities/durations (shown on the mode tiles)
   airing_pct: `sensor.${DEV}rekuperator_wietrzenie_intensywnosc`, // 4230
   airing_time: `sensor.${DEV}rekuperator_wietrzenie_czas`, // 4233
@@ -107,6 +109,8 @@ const ENTITY_RULES = {
   bypass_heat: { domain: "sensor", suffix: "bypass_prog_grzanie" },
   bypass_min: { domain: "sensor", suffix: "bypass_prog_min" },
   temp_comfort: { domain: "sensor", suffix: "temperatura_komfort" },
+  heater_pct: { domain: "sensor", suffix: "nagrzewnica" },
+  cooler_pct: { domain: "sensor", suffix: "chlodnica" },
   airing_pct: { domain: "sensor", suffix: "wietrzenie_intensywnosc" },
   airing_time: { domain: "sensor", suffix: "wietrzenie_czas" },
   away_pct: { domain: "sensor", suffix: "pusty_dom_intensywnosc" },
@@ -512,6 +516,9 @@ class ThesslaGreenCard extends HTMLElement {
       dFlowExt: q("d-flow-ext"),
       dPctSup: q("d-pct-sup"),
       dPctExt: q("d-pct-ext"),
+      cond: q("cond"),
+      condCoil: q("cond-coil"),
+      dCond: q("d-cond"),
       filtFillSup: q("fmask-sup"),
       filtFillExt: q("fmask-ext"),
       dAmbient: q("d-ambient"),
@@ -694,6 +701,16 @@ class ThesslaGreenCard extends HTMLElement {
             <text class="sub" data-el="d-pct-ext"  x="320" y="97"  text-anchor="middle"></text>
             <text class="sub" data-el="d-flow-ext" x="320" y="108" text-anchor="middle"></text>
             <rect class="hitbox" x="302" y="54" width="36" height="62"/>
+          </g>
+
+          <!-- Secondary heater / cooler on the supply (nawiew) duct, after the
+               exchanger. Lights warm when heating, cool when cooling, dim when idle.
+               Hidden entirely when the unit has neither. -->
+          <g data-mref="heater_pct" class="grp" data-el="cond">
+            <rect x="334" y="146" width="34" height="16" fill="${bg}"/>
+            <polyline class="cond-coil" data-el="cond-coil" points="337,154 342,148 351,160 360,148 365,154"/>
+            <text class="sub" data-el="d-cond" x="351" y="171" text-anchor="middle"></text>
+            <rect class="hitbox" x="334" y="146" width="34" height="26"/>
           </g>
 
           <!-- Stream names -->
@@ -938,6 +955,22 @@ class ThesslaGreenCard extends HTMLElement {
       if (e.dAmbient) e.dAmbient.textContent = amb === null ? "" : `${amb.toFixed(1)}°C`;
       const tt = this._num(en.target_temp); // fork: target supply temp (4212)
       e.dTarget.textContent = tt === null ? "" : `${t("target")} ${tt.toFixed(1)}°C`;
+      // Secondary heater (1282) / cooler (1283) on the supply duct. Show the coil
+      // whenever the unit has either; warm when heating, cool when cooling, dim idle.
+      if (e.cond) {
+        const hp = this._num(en.heater_pct);
+        const cp = this._num(en.cooler_pct);
+        const present = hp !== null || cp !== null;
+        e.cond.style.display = present ? "" : "none";
+        if (present) {
+          const heating = (hp ?? 0) > 0;
+          const cooling = !heating && (cp ?? 0) > 0;
+          e.condCoil.classList.toggle("heat", heating);
+          e.condCoil.classList.toggle("cool", cooling);
+          e.dCond.textContent = heating ? `${Math.round(hp)}%` : cooling ? `${Math.round(cp)}%` : "";
+          e.dCond.style.fill = heating ? "var(--tg-warn)" : cooling ? "var(--tg-winter)" : "";
+        }
+      }
     }
 
     // Bypass: chip = function enable (reg 4320); badge = actuator open now (coil 9).
@@ -1071,6 +1104,9 @@ class ThesslaGreenCard extends HTMLElement {
       .diag .ah { fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
       .diag .track { fill:none; stroke-width:2.2; opacity:.3; stroke-linecap:round; stroke-linejoin:round; }
       .diag .coil { fill:none; stroke:var(--secondary-text-color); stroke-width:2; stroke-linejoin:round; opacity:.7; }
+      .diag .cond-coil { fill:none; stroke:var(--secondary-text-color); stroke-width:2; stroke-linecap:round; stroke-linejoin:round; opacity:.5; transition:.3s; }
+      .diag .cond-coil.heat { stroke:var(--tg-warn); opacity:1; }
+      .diag .cond-coil.cool { stroke:var(--tg-winter); opacity:1; }
       .diag .filt-b { fill:none; stroke:var(--secondary-text-color); stroke-width:1.4; stroke-linecap:round; }
       .diag .filt-ghost { opacity:.25; }
       .diag .filt-live { opacity:1; }
