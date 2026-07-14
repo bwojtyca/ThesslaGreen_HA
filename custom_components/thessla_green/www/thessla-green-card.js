@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "2.1.2";
+const TG_VERSION = "2.1.3";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -162,6 +162,9 @@ const I18N = {
     intensity: "Intensity", auto: "Auto", manual: "Manual", temporary: "Temporary",
     fn_airing: "Airing", fn_away: "Away", fn_window: "Open window", fn_fireplace: "Fireplace",
     bypass: "Bypass", enabled: "Enabled", disabled: "Disabled", open: "Open", closed: "Closed", device: "Device",
+    bypass_hint_off: "Bypass function disabled",
+    bypass_hint_closed: "Function enabled — bypass closed (opens automatically when conditions allow)",
+    bypass_hint_open: "Bypass open (active)",
     filters: "Filters", replace: "Replace", ok: "OK",
     efficiency: "Efficiency", recovery: "Recovery", cop: "COP",
     intake: "INTAKE", extract: "EXTRACT", exhaust: "EXHAUST", supply: "SUPPLY",
@@ -172,6 +175,9 @@ const I18N = {
     intensity: "Intensywność", auto: "Auto", manual: "Ręczny", temporary: "Chwilowy",
     fn_airing: "Wietrzenie", fn_away: "Pusty dom", fn_window: "Otwarte okno", fn_fireplace: "Kominek",
     bypass: "Bypass", enabled: "Włączony", disabled: "Wyłączony", open: "Otwarty", closed: "Zamknięty", device: "Urządzenie",
+    bypass_hint_off: "Funkcja bypass wyłączona",
+    bypass_hint_closed: "Funkcja włączona — bypass zamknięty (uaktywni się, gdy warunki będą sprzyjające)",
+    bypass_hint_open: "Bypass otwarty (aktywny)",
     filters: "Filtry", replace: "Wymień", ok: "OK",
     efficiency: "Sprawność", recovery: "Odzysk", cop: "COP",
     intake: "CZERPNIA", extract: "WYWIEW", exhaust: "WYRZUTNIA", supply: "NAWIEW",
@@ -746,12 +752,20 @@ class ThesslaGreenCard extends HTMLElement {
     const bypStatus = this._num(en.bypass_status);
     const bypassOpen = bypStatus !== null ? bypStatus !== 0 : this._isOn(en.bypass_open);
     if (e.bp) e.bp.classList.toggle("show", bypassOpen);
-    // Chip reflects the LIVE state: green when actually open, neutral when
-    // enabled-but-idle (closed), dimmed when the function is disabled.
-    // Clicking still toggles the bypass function (reg 4320).
+    // Show BOTH facts at once: is the function enabled, and is the bypass open
+    // right now. "Enabled · Closed" = armed but idle (will auto-open when the
+    // conditions allow); green = open (active); dimmed = function disabled.
+    // Clicking still toggles the bypass function (reg 4320); the tooltip explains.
     e.bypass.classList.toggle("on", bypassOpen);
     e.bypass.classList.toggle("dim", !bypassEnabled);
-    e.bypassTxt.textContent = !bypassEnabled ? t("disabled") : bypassOpen ? t("open") : t("closed");
+    e.bypassTxt.textContent = !bypassEnabled
+      ? t("disabled")
+      : `${t("enabled")} · ${bypassOpen ? t("open") : t("closed")}`;
+    e.bypass.title = !bypassEnabled
+      ? t("bypass_hint_off")
+      : bypassOpen
+      ? t("bypass_hint_open")
+      : t("bypass_hint_closed");
 
     // Metrics.
     if (this._config.show_metrics) {
@@ -884,9 +898,11 @@ class ThesslaGreenCard extends HTMLElement {
       .chips { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
       .chip { display:flex; align-items:center; gap:8px; padding:10px 12px; border-radius:12px;
               background:var(--secondary-background-color); border:1px solid var(--divider-color);
-              font-size:.85rem; color:var(--secondary-text-color); }
-      .chip .ic { width:20px; height:20px; }
-      .chip b { margin-left:auto; color:var(--primary-text-color); font-weight:600; }
+              font-size:.85rem; color:var(--secondary-text-color); min-width:0; }
+      .chip .ic { width:20px; height:20px; flex:0 0 auto; }
+      .chip > span { flex:0 0 auto; }
+      .chip b { margin-left:auto; color:var(--primary-text-color); font-weight:600;
+                min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
       .chip.on { background:var(--tg-accent); border-color:var(--tg-accent); color:var(--tg-on-accent); }
       .chip.on .ic, .chip.on b { fill:var(--tg-on-accent); color:var(--tg-on-accent); }
       .chip.warn { background:var(--tg-crit); border-color:var(--tg-crit); color:#fff; }
