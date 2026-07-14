@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "2.1.3";
+const TG_VERSION = "2.1.4";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -443,6 +443,7 @@ class ThesslaGreenCard extends HTMLElement {
       dFlowSup: q("d-flow-sup"),
       dFlowExt: q("d-flow-ext"),
       bp: q("bp"),
+      hex: this.shadowRoot.querySelector(".hex"),
       flows: this.shadowRoot.querySelectorAll(".flow"),
     };
     this._e.modeTiles = Array.from(this._e.modes.querySelectorAll(".mtile"));
@@ -752,6 +753,8 @@ class ThesslaGreenCard extends HTMLElement {
     const bypStatus = this._num(en.bypass_status);
     const bypassOpen = bypStatus !== null ? bypStatus !== 0 : this._isOn(en.bypass_open);
     if (e.bp) e.bp.classList.toggle("show", bypassOpen);
+    // When open, the heat exchanger is bypassed → show it as inactive (dashed/dim).
+    if (e.hex) e.hex.classList.toggle("bypass", bypassOpen);
     // Show BOTH facts at once: is the function enabled, and is the bypass open
     // right now. "Enabled · Closed" = armed but idle (will auto-open when the
     // conditions allow); green = open (active); dimmed = function disabled.
@@ -837,7 +840,8 @@ class ThesslaGreenCard extends HTMLElement {
       .diag { width:100%; height:auto; display:block; }
       .diag [data-mref] { cursor:pointer; }
       .diag [data-mref]:hover { opacity:.6; }
-      .diag .hex { fill:none; stroke:var(--tg-hex); stroke-width:4; stroke-linejoin:round; }
+      .diag .hex { fill:none; stroke:var(--tg-hex); stroke-width:4; stroke-linejoin:round; transition:.3s; }
+      .diag .hex.bypass { stroke-dasharray:7 6; opacity:.35; }
       .diag .bp { display:none; }
       .diag .bp.show { display:inline; }
       .diag .track { stroke:var(--secondary-text-color); stroke-width:3; opacity:.2; stroke-linecap:round; }
