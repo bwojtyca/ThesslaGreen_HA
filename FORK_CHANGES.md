@@ -1,5 +1,12 @@
 # Fork changes — extra Modbus registers
 
+**v0.5.0-rc.18** — tighter bottom section (card **3.0.0-rc.15**).
+- **Bypass** dropped its box (background + heavy padding) — now a borderless row (subtle hover),
+  reclaiming the vertical space the padding cost.
+- **Statistics** trimmed vertical padding. The **Filters** cell now shows days-to-change and both
+  wear %s **on one row, side by side** (equal weight, each still tappable) instead of the wear in a
+  third line.
+
 **v0.5.0-rc.17** — Modbus communication optimised (card unchanged, 3.0.0-rc.14).
 - **Writes feel instant.** After a successful write the value is now pushed into the cache
   optimistically (`coordinator.apply_optimistic`) so the UI updates immediately, instead of waiting

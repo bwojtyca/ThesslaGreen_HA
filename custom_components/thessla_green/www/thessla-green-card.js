@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "3.0.0-rc.14";
+const TG_VERSION = "3.0.0-rc.15";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -492,11 +492,12 @@ class ThesslaGreenCard extends HTMLElement {
       s.key === "filters"
         ? `<div class="stat stat-filters" data-el="stat-filters">
              <span class="sl">${t(s.label)}</span>
-             <button class="sv" data-el="st-filter" data-mref="filter_change">—</button>
-             <span class="ss">
-               <button data-el="st-wear-sup" data-mref="filter_wear_sup">—</button>
+             <span class="svrow">
+               <button class="fv" data-el="st-filter" data-mref="filter_change">—</button>
+               <span class="ss-sep">·</span>
+               <button class="fv" data-el="st-wear-sup" data-mref="filter_wear_sup">—</button>
                <span class="ss-sep">/</span>
-               <button data-el="st-wear-ext" data-mref="filter_wear_ext">—</button>
+               <button class="fv" data-el="st-wear-ext" data-mref="filter_wear_ext">—</button>
              </span>
            </div>`
         : `<div class="stat">
@@ -1304,9 +1305,11 @@ class ThesslaGreenCard extends HTMLElement {
                    color:var(--primary-text-color); text-shadow:0 1px 2px rgba(0,0,0,.18); pointer-events:none; }
       .speed-track.pending .speed-cap { visibility:hidden; }  /* spinner takes the centre */
 
-      /* Bypass — its own section: icon + 2 rows (title·cfg / state·reason) + toggle */
+      /* Bypass — borderless row: icon + 2 lines (title·cfg / state·reason) + toggle.
+         No box, so it doesn't cost the extra vertical padding; subtle hover only. */
       .bypass { display:flex; align-items:center; gap:12px; width:100%; text-align:left;
-                padding:10px 14px; border-radius:14px; background:var(--secondary-background-color); transition:.15s; }
+                padding:2px 2px; border-radius:10px; background:none; transition:.15s; }
+      .bypass:hover { background:var(--secondary-background-color); }
       .bypass[hidden] { display:none; }
       .bypass-ic { flex:0 0 auto; color:var(--secondary-text-color); display:grid; place-items:center; }
       .bypass-ic .ic { width:24px; height:24px; fill:currentColor; }
@@ -1335,18 +1338,19 @@ class ThesslaGreenCard extends HTMLElement {
          only the value(s) are clickable, not the whole box. */
       .stats { display:flex; align-items:stretch; }
       .stat { flex:1 1 0; min-width:0; display:flex; flex-direction:column; align-items:center;
-              justify-content:flex-start; gap:3px; padding:6px 6px; }
+              justify-content:flex-start; gap:2px; padding:2px 6px; }
       .stat + .stat { border-left:1px solid var(--divider-color); }
       .stat .sl { font-size:.62rem; color:var(--secondary-text-color); text-transform:uppercase; letter-spacing:.5px; }
       .stat .sv { font-size:1.2rem; font-weight:700; color:var(--tg-accent-d);
                   font-variant-numeric:tabular-nums; line-height:1.1; cursor:pointer; transition:.15s; }
       .stat .sv:hover { opacity:.6; }
-      .stat .ss { display:flex; align-items:baseline; gap:5px; font-size:.68rem;
-                  color:var(--secondary-text-color); font-variant-numeric:tabular-nums; }
-      .stat .ss button { font:inherit; color:inherit; cursor:pointer; transition:.15s; }
-      .stat .ss button:hover { color:var(--tg-accent-d); opacity:.8; }
-      .stat .ss-sep { opacity:.45; }
-      .stat.warn .sv { color:var(--tg-crit); }
+      /* Filters pack days + both wear values side-by-side (equal weight). */
+      .stat .svrow { display:flex; align-items:baseline; gap:4px; }
+      .stat .fv { font-size:.95rem; font-weight:700; color:var(--tg-accent-d);
+                  font-variant-numeric:tabular-nums; line-height:1.1; cursor:pointer; transition:.15s; }
+      .stat .fv:hover { opacity:.6; }
+      .stat .ss-sep { color:var(--secondary-text-color); opacity:.45; font-size:.8rem; }
+      .stat.warn .sv, .stat.warn .fv:first-of-type { color:var(--tg-crit); }
 
       /* Optimistic-state locking */
       .blocked { opacity:.4 !important; pointer-events:none; }
