@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "3.0.0-rc.2";
+const TG_VERSION = "3.0.0-rc.3";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -155,10 +155,10 @@ function resolveEntities(hass, overrides = {}) {
 
 // Special functions. `option` = integration select value (Polish); `key` = i18n label.
 const SPECIAL_FUNCTIONS = [
-  { option: "Wietrzenie", key: "fn_airing", icon: "M14.5,17A2.5,2.5 0 0,1 12,19.5A2.5,2.5 0 0,1 9.5,17H11A1.5,1.5 0 0,0 12.5,18.5A1.5,1.5 0 0,0 14,17A1.5,1.5 0 0,0 12.5,15.5H2V14H12.5A3,3 0 0,1 15.5,17M18,10.5A3.5,3.5 0 0,0 21.5,7A3.5,3.5 0 0,0 18,3.5A3.5,3.5 0 0,0 14.5,7H16A2,2 0 0,1 18,5A2,2 0 0,1 20,7A2,2 0 0,1 18,9H2V10.5H18M18.5,12H2V13.5H18.5A2,2 0 0,1 20.5,15.5A2,2 0 0,1 18.5,17.5H17V19H18.5A3.5,3.5 0 0,0 22,15.5A3.5,3.5 0 0,0 18.5,12Z", pct: "airing_pct", time: "airing_time" },
-  { option: "Pusty Dom", key: "fn_away", icon: "M12,3L2,12H5V20H19V12H22L12,3M12,7.7C14.1,7.7 15.8,9.4 15.8,11.5C15.8,14.5 12,18 12,18C12,18 8.2,14.5 8.2,11.5C8.2,9.4 9.9,7.7 12,7.7M12,10A1.5,1.5 0 0,0 10.5,11.5A1.5,1.5 0 0,0 12,13A1.5,1.5 0 0,0 13.5,11.5A1.5,1.5 0 0,0 12,10Z", pct: "away_pct" },
-  { option: "Okna", key: "fn_window", icon: "M20,3H4A2,2 0 0,0 2,5V19A2,2 0 0,0 4,21H20A2,2 0 0,0 22,19V5A2,2 0 0,0 20,3M20,19H13V17H11V19H4V5H11V7H13V5H20V19Z", pct: "window_pct" },
-  { option: "Kominek", key: "fn_fireplace", icon: "M17,7C17,7 18,10 15,13C15,13 16,9 12,7C12,7 13,11 9,13C9,13 5,15 7,20C7,20 3,17 4,12C4,12 5,13 6,13C6,13 4,9 8,4C8,4 8,7 10,7C10,7 9,2 15,2C15,2 13,5 15,7C15,7 16,6 17,4C17,4 18,5 17,7Z", pct: "fireplace_pct", time: "fireplace_time" },
+  { option: "Wietrzenie", key: "fn_airing", icon: "M14.5,17A2.5,2.5 0 0,1 12,19.5A2.5,2.5 0 0,1 9.5,17H11A1.5,1.5 0 0,0 12.5,18.5A1.5,1.5 0 0,0 14,17A1.5,1.5 0 0,0 12.5,15.5H2V14H12.5A3,3 0 0,1 15.5,17M18,10.5A3.5,3.5 0 0,0 21.5,7A3.5,3.5 0 0,0 18,3.5A3.5,3.5 0 0,0 14.5,7H16A2,2 0 0,1 18,5A2,2 0 0,1 20,7A2,2 0 0,1 18,9H2V10.5H18M18.5,12H2V13.5H18.5A2,2 0 0,1 20.5,15.5A2,2 0 0,1 18.5,17.5H17V19H18.5A3.5,3.5 0 0,0 22,15.5A3.5,3.5 0 0,0 18.5,12Z", pct: "airing_pct", time: "airing_time", max: 150 },
+  { option: "Pusty Dom", key: "fn_away", icon: "M12,3L2,12H5V20H19V12H22L12,3M12,7.7C14.1,7.7 15.8,9.4 15.8,11.5C15.8,14.5 12,18 12,18C12,18 8.2,14.5 8.2,11.5C8.2,9.4 9.9,7.7 12,7.7M12,10A1.5,1.5 0 0,0 10.5,11.5A1.5,1.5 0 0,0 12,13A1.5,1.5 0 0,0 13.5,11.5A1.5,1.5 0 0,0 12,10Z", pct: "away_pct", max: 50 },
+  { option: "Okna", key: "fn_window", icon: "M20,3H4A2,2 0 0,0 2,5V19A2,2 0 0,0 4,21H20A2,2 0 0,0 22,19V5A2,2 0 0,0 20,3M20,19H13V17H11V19H4V5H11V7H13V5H20V19Z", pct: "window_pct", max: 100 },
+  { option: "Kominek", key: "fn_fireplace", icon: "M17,7C17,7 18,10 15,13C15,13 16,9 12,7C12,7 13,11 9,13C9,13 5,15 7,20C7,20 3,17 4,12C4,12 5,13 6,13C6,13 4,9 8,4C8,4 8,7 10,7C10,7 9,2 15,2C15,2 13,5 15,7C15,7 16,6 17,4C17,4 18,5 17,7Z", pct: "fireplace_pct", time: "fireplace_time", max: 100 },
 ];
 const SPECIAL_NONE = "Brak trybu";
 
@@ -314,7 +314,10 @@ class ThesslaGreenCard extends HTMLElement {
     if (kind === "special") {
       const fn = SPECIAL_FUNCTIONS.find((f) => f.option === val);
       if (!fn) return "";
-      return [fn.pct && pct(en[fn.pct]), fn.time && mins(en[fn.time])].filter(Boolean).join(" · ");
+      // hide out-of-range intensity (e.g. openWindow reads 101 = not set / sentinel)
+      const p = fn.pct ? this._num(en[fn.pct]) : null;
+      const pctStr = p !== null && p <= (fn.max || 150) ? `${Math.round(p)}%` : null;
+      return [pctStr, fn.time && mins(en[fn.time])].filter(Boolean).join(" · ");
     }
     return "";
   }
@@ -785,12 +788,6 @@ class ThesslaGreenCard extends HTMLElement {
     this.shadowRoot.querySelectorAll("[data-mref]").forEach((el) => {
       el.onclick = () => this._moreInfo(en()[el.dataset.mref]);
     });
-    // Both filters read as one: hovering either highlights both.
-    const filts = this.shadowRoot.querySelectorAll(".filt-grp");
-    filts.forEach((f) => {
-      f.addEventListener("mouseenter", () => filts.forEach((g) => g.classList.add("hover")));
-      f.addEventListener("mouseleave", () => filts.forEach((g) => g.classList.remove("hover")));
-    });
   }
 
   _applyPending() {
@@ -1002,8 +999,10 @@ class ThesslaGreenCard extends HTMLElement {
     const fdays = this._num(en.filter_days); // fork: days to filter change (4660)
     e.filterTxt.textContent = filterAlarm ? t("replace") : fdays !== null ? `${Math.round(fdays)} d` : t("ok");
     if (e.filterCfg) {
-      const wear = this._num(en.filter_wear_sup); // 4482: supply filter wear %
-      e.filterCfg.textContent = wear !== null ? `${t("cfg_wear")} ${Math.round(wear)}%` : "";
+      const ws = this._num(en.filter_wear_sup); // 4482: supply filter wear %
+      const we = this._num(en.filter_wear_ext); // 4483: exhaust filter wear %
+      const parts = [ws, we].filter((v) => v !== null).map((v) => `${Math.round(v)}%`);
+      e.filterCfg.textContent = parts.length ? `${t("cfg_wear")} ${parts.join(" / ")}` : "";
     }
 
     this._applyPending();
@@ -1070,7 +1069,6 @@ class ThesslaGreenCard extends HTMLElement {
       .diag .filt-b { fill:none; stroke:var(--secondary-text-color); stroke-width:1.4; stroke-linecap:round; }
       .diag .filt-ghost { opacity:.25; }
       .diag .filt-live { opacity:1; }
-      .diag .filt-grp.hover { opacity:.55; }
       /* Invisible hit target: makes the whole icon area (not just its strokes) hoverable/clickable */
       .diag .hitbox { fill:transparent; pointer-events:all; }
       .diag .probe { fill:none; stroke:var(--secondary-text-color); stroke-width:1.6; opacity:.5; stroke-linecap:round; stroke-linejoin:round; }

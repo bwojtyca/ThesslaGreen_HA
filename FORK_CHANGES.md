@@ -1,5 +1,13 @@
 # Fork changes — extra Modbus registers
 
+**v0.5.0-rc.3** — filter tweaks + openWindow guard (card **3.0.0-rc.3**).
+- Diagram filters are independent again (they're separate entities: supply vs exhaust wear) — hovering
+  one no longer highlights both; each opens its own history.
+- Filters chip shows **both** wear values (supply / exhaust).
+- "Otwarte okno" tile: `openWindowCoef` (4239) reads **101** on the 800v, which is outside the
+  documented 0–100 range (a not-set/sentinel value) — the card now hides out-of-range intensities
+  instead of showing a bogus "101%".
+
 **v0.5.0-rc.2** — fixes + config on tiles (card **3.0.0-rc.2**).
 - Fixed the **visual editor** crash (`ha-form` got an undefined schema — now populated before attach).
 - Guarded `customElements.define` against double-load; ambient temp auto-detect now also matches the
