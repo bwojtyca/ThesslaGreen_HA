@@ -1,5 +1,23 @@
 # Fork changes — extra Modbus registers
 
+**v0.5.0-rc.15** — bottom-section redesign + mode/bypass detail (card **3.0.0-rc.13**).
+- **Mode tiles** are now strictly equal width (`minmax(0,1fr)`), so a long label like "Wietrzenie"
+  no longer stretches its column; long words wrap on narrow screens.
+- **Statistics** are a new light, borderless section (hairline-separated cells, not buttons) and each
+  is **individually toggleable** via `metrics: [...]` in config / a multi-select in the editor. **Filters**
+  moved in here as a richer cell (days-to-change + wear %). Example: drop `cop` to hide COP.
+- **Bypass** is now its own full-width section (was a cramped chip): icon + title, a real on/off
+  **toggle** (the function enable, reg 4320), the state (open / closed / disabled) and its config
+  (comfort ° · min °).
+- **Auto tile** shows a sub-line of what Auto is doing right now — `harmonogram`, or the active
+  auto-triggered function (e.g. `Wietrzenie`).
+- **Open-window tile** shows `0% · auto` (fan stopped, no fixed duration), mirroring airing's `% · min`.
+- **Bypass "why closed"**: the in-hexagon note + a highlighted reason on the bypass section now appear
+  **only when we can actually derive the reason** from live values against the documented logic
+  (reg 4321 outdoor-min, 4322 free-heating, 4323 free-cooling): "za zimno na zewnątrz" (outdoor below
+  min) or "temperatura w normie" (room temp between the heat/cool thresholds). If the closure can't be
+  explained, nothing is shown.
+
 **v0.5.0-rc.13** — slider polish (card **3.0.0-rc.11**).
 - Intensity slider shows a **spinner** while the write is being confirmed by the device (after the
   debounce fires), same as the other controls.

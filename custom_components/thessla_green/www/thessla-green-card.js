@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "3.0.0-rc.11";
+const TG_VERSION = "3.0.0-rc.13";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -166,6 +166,16 @@ const SPECIAL_FUNCTIONS = [
 ];
 const SPECIAL_NONE = "Brak trybu";
 
+// Read-only stats shown in the bottom section. Each is individually toggleable
+// via the `metrics` config (a list of keys; omitted = all). `filters` is a richer
+// cell that folds together days-to-change + wear %. All open more-info on tap.
+const STATS = [
+  { key: "efficiency", mref: "efficiency", label: "efficiency" },
+  { key: "recovery", mref: "recovery_power", label: "recovery" },
+  { key: "cop", mref: "cop", label: "cop" },
+  { key: "filters", mref: "filter_change", label: "filters" },
+];
+
 // Base-mode tiles (register 4208). Temporary is read-only (integration can't set it).
 const MODE_ICONS = {
   auto: "M15,13H16.5V15.82L18.94,17.23L18.19,18.53L15,16.69V13M19,8H5V19H9.67C9.24,18.09 9,17.07 9,16A7,7 0 0,1 16,9C17.07,9 18.09,9.24 19,9.67V8M5,21C3.89,21 3,20.1 3,19V5C3,3.89 3.89,3 5,3H6V1H8V3H16V1H18V3H19A2,2 0 0,1 21,5V11.1C22.24,12.36 23,14.09 23,16A7,7 0 0,1 16,23C14.09,23 12.36,22.24 11.1,21H5M16,11.15A4.85,4.85 0 0,0 11.15,16C11.15,18.68 13.32,20.85 16,20.85A4.85,4.85 0 0,0 20.85,16C20.85,13.32 18.68,11.15 16,11.15Z",
@@ -204,6 +214,8 @@ const I18N = {
     intake: "INTAKE", extract: "EXTRACT", exhaust: "EXHAUST", supply: "SUPPLY",
     warning: "Warning", error: "Error", schedule: "schedule", active: "active", off: "Off", target: "target",
     cfg_comfort: "comf", cfg_min: "min", cfg_wear: "wear",
+    bpr_cold: "too cold outside", bpr_band: "room temp in range",
+    bpr_cold_short: "too cold", bpr_band_short: "in range",
   },
   pl: {
     name: "Rekuperator", power: "Zasilanie", season: "Sezon", winter: "Zima", summer: "Lato",
@@ -218,6 +230,8 @@ const I18N = {
     intake: "CZERPNIA", extract: "WYWIEW", exhaust: "WYRZUTNIA", supply: "NAWIEW",
     warning: "Ostrzeżenie", error: "Błąd", schedule: "harmonogram", active: "aktywne", off: "Wyłączony", target: "cel",
     cfg_comfort: "komf", cfg_min: "min", cfg_wear: "zużycie",
+    bpr_cold: "za zimno na zewnątrz", bpr_band: "temperatura w normie",
+    bpr_cold_short: "za zimno", bpr_band_short: "w normie",
   },
 };
 
@@ -253,6 +267,7 @@ class ThesslaGreenCard extends HTMLElement {
       show_metrics: config.show_metrics !== false,
       show_diagram: config.show_diagram !== false,
       functions: Array.isArray(config.functions) ? config.functions : null,
+      metrics: Array.isArray(config.metrics) ? config.metrics : null,
       accent: config.accent === "thessla" ? "thessla" : "theme",
       entities: { ...(config.entities || {}) },
     };
@@ -322,13 +337,12 @@ class ThesslaGreenCard extends HTMLElement {
     if (kind === "special") {
       const fn = SPECIAL_FUNCTIONS.find((f) => f.option === val);
       if (!fn) return "";
+      // Open-window stops the supply fan and has no set duration → always "0% · auto".
+      if (fn.option === "Okna") return `0% · ${this._t("auto").toLowerCase()}`;
       let pctStr = null;
       if (fn.pct) {
         const p = this._num(en[fn.pct]);
-        if (p !== null) {
-          // openWindow reads 101 (out of 0–100): the function stops the supply fan → 0%
-          pctStr = p <= (fn.max || 150) ? `${Math.round(p)}%` : fn.option === "Okna" ? "0%" : null;
-        }
+        if (p !== null) pctStr = p <= (fn.max || 150) ? `${Math.round(p)}%` : null;
       }
       return [pctStr, fn.time && mins(en[fn.time])].filter(Boolean).join(" · ");
     }
@@ -416,6 +430,29 @@ class ThesslaGreenCard extends HTMLElement {
     const c = o && o.attributes ? o.attributes.special_code : null;
     return c === null || c === undefined ? null : Number(c);
   }
+  // Why is the bypass closed while its function is enabled? Returns only reasons
+  // we can actually derive from live values against the documented logic (regs
+  // 4321 min outdoor temp / 4322 free-heating TP< / 4323 free-cooling TP>).
+  // Empty when we can't explain it — we show nothing rather than guess.
+  _bypassReasons() {
+    const en = this._entities;
+    const t = (k) => this._t(k);
+    const intake = this._num(en.temp_intake); // TZ1 — outdoor air drawn in
+    const room = this._num(en.temp_extract);  // TP — extracted room air (proxy)
+    const bmin = this._num(en.bypass_min);     // 4321 min outdoor temp
+    const heat = this._num(en.bypass_heat);    // 4322 free-heating threshold (TP below → open)
+    const cool = this._num(en.bypass_cool);    // 4323 free-cooling threshold (TP above → open)
+    const reasons = [];
+    // Outdoor colder than the configured minimum → bypass held shut.
+    if (intake !== null && bmin !== null && intake < bmin) {
+      reasons.push({ key: "cold", label: t("bpr_cold"), short: t("bpr_cold_short"), detail: `${Math.round(intake)}° < ${Math.round(bmin)}°` });
+    }
+    // Room temp between the heating and cooling thresholds → no free-heat/cool demand.
+    if (room !== null && heat !== null && cool !== null && room >= heat && room <= cool) {
+      reasons.push({ key: "band", label: t("bpr_band"), short: t("bpr_band_short"), detail: `${Math.round(room)}°` });
+    }
+    return reasons;
+  }
 
   // ---- Render --------------------------------------------------------------
   _render() {
@@ -443,6 +480,21 @@ class ThesslaGreenCard extends HTMLElement {
       tile("mode", "manual", MODE_ICONS.manual, t("manual")) +
       fns.map((f) => tile("special", f.option, f.icon, t(f.key))).join("") +
       tile("temp", "temporary", MODE_ICONS.temporary, t("temporary"), "ro");
+
+    // Stats section (borderless, configurable). `filters` gets an extra sub-line.
+    const statKeys = c.metrics || STATS.map((s) => s.key);
+    const stats = STATS.filter((s) => statKeys.includes(s.key));
+    const statIds = { efficiency: "st-eff", recovery: "st-pow", cop: "st-cop", filters: "st-filter" };
+    const statCell = (s) =>
+      `<button class="stat"${s.key === "filters" ? ' data-el="stat-filters"' : ""} data-mref="${s.mref}">
+         <span class="sv" data-el="${statIds[s.key]}">—</span>
+         <span class="sl">${t(s.label)}</span>
+         ${s.key === "filters" ? '<span class="ss" data-el="st-filter-sub"></span>' : ""}
+       </button>`;
+    const statsHtml =
+      c.show_metrics && stats.length
+        ? `<div class="stats" data-el="stats">${stats.map(statCell).join("")}</div>`
+        : "";
 
     this.shadowRoot.innerHTML = `
       <style>${this._css()}</style>
@@ -475,20 +527,20 @@ class ThesslaGreenCard extends HTMLElement {
             </div>
           </div>
 
-          ${
-            c.show_metrics
-              ? `<div class="metrics">
-                  <button class="metric" data-mref="efficiency"><span class="mv" data-el="m-eff">—</span><span class="ml">${t("efficiency")}</span></button>
-                  <button class="metric" data-mref="recovery_power"><span class="mv" data-el="m-pow">—</span><span class="ml">${t("recovery")}</span></button>
-                  <button class="metric" data-mref="cop"><span class="mv" data-el="m-cop">—</span><span class="ml">${t("cop")}</span></button>
-                </div>`
-              : ""
-          }
+          <!-- Bypass: its own section — toggle (enable/disable the function) plus
+               readable state (open / closed / disabled) and its config. -->
+          <button class="bypass" data-el="bypass">
+            <span class="bypass-ic">${this._icon(ICONS.bypass)}</span>
+            <span class="bypass-info">
+              <span class="bypass-title">${t("bypass")}</span>
+              <span class="bypass-state" data-el="bypass-txt">—</span>
+              <span class="bypass-reason" data-el="bypass-reason"></span>
+              <span class="bypass-cfg" data-el="bypass-cfg"></span>
+            </span>
+            <span class="bypass-sw" aria-hidden="true"><i></i></span>
+          </button>
 
-          <div class="chips">
-            <button class="chip" data-el="bypass">${this._icon(ICONS.bypass)}<span>${t("bypass")}</span><span class="chip-val"><b data-el="bypass-txt">—</b><small class="chip-cfg" data-el="bypass-cfg"></small></span></button>
-            <button class="chip" data-el="filter">${this._icon(ICONS.filter)}<span>${t("filters")}</span><span class="chip-val"><b data-el="filter-txt">—</b><small class="chip-cfg" data-el="filter-cfg"></small></span></button>
-          </div>
+          ${statsHtml}
         </div>
       </ha-card>
     `;
@@ -508,15 +560,16 @@ class ThesslaGreenCard extends HTMLElement {
       speedInput: q("speed-input"),
       speedCap: q("speed-cap"),
       modes: q("modes"),
-      mEff: q("m-eff"),
-      mPow: q("m-pow"),
-      mCop: q("m-cop"),
+      stEff: q("st-eff"),
+      stPow: q("st-pow"),
+      stCop: q("st-cop"),
+      stFilter: q("st-filter"),
+      stFilterSub: q("st-filter-sub"),
+      statFilters: q("stat-filters"),
       bypass: q("bypass"),
       bypassTxt: q("bypass-txt"),
+      bypassReason: q("bypass-reason"),
       bypassCfg: q("bypass-cfg"),
-      filter: q("filter"),
-      filterTxt: q("filter-txt"),
-      filterCfg: q("filter-cfg"),
       dIntake: q("d-intake"),
       dExtract: q("d-extract"),
       dSupply: q("d-supply"),
@@ -680,7 +733,7 @@ class ThesslaGreenCard extends HTMLElement {
             <path class="bp-mask" d="${RIBBON}"/>
             <path class="bp-band" d="${RIBBON}" mask="url(#bpk)"/>
             <g class="bp-thr" data-el="bp-thr">
-              <rect class="bp-thr-bg" x="219" y="124.5" width="42" height="13" rx="3"/>
+              <rect class="bp-thr-bg" x="204" y="124.5" width="72" height="13" rx="3"/>
               <text class="bp-thr-t" data-el="bp-thr-t" x="240" y="134" text-anchor="middle"></text>
             </g>
           </g>
@@ -834,7 +887,6 @@ class ThesslaGreenCard extends HTMLElement {
       this._lock(["bypass"], this._e.bypass, () => this._isOn(en().bypass) === want);
     };
 
-    this._e.filter.onclick = () => this._moreInfo(en().filter_change);
     this.shadowRoot.querySelectorAll("[data-mref]").forEach((el) => {
       el.onclick = () => this._moreInfo(en()[el.dataset.mref]);
     });
@@ -950,7 +1002,20 @@ class ThesslaGreenCard extends HTMLElement {
       }
       tl.classList.toggle("active", active);
       const sub = tl.querySelector(".msub");
-      if (sub) sub.textContent = this._tileSub(kind, val, en);
+      if (sub) {
+        if (kind === "mode" && val === "auto") {
+          // Auto is schedule-driven: surface what it's doing — the active
+          // auto-triggered special (e.g. "Wietrzenie") or just "harmonogram".
+          if (mode === 0 && autoTrig) {
+            const fn = SPECIAL_FUNCTIONS.find((f) => f.option === special);
+            sub.textContent = fn ? t(fn.key) : special;
+          } else {
+            sub.textContent = mode === 0 ? t("schedule") : "";
+          }
+        } else {
+          sub.textContent = this._tileSub(kind, val, en);
+        }
+      }
     });
 
     // Status line: what currently controls the airflow (effective % + m³/h).
@@ -1028,6 +1093,9 @@ class ThesslaGreenCard extends HTMLElement {
     // fall back to the actuator coil (9) when the fork sensor isn't present.
     const bypStatus = this._num(en.bypass_status);
     const bypassOpen = bypStatus !== null ? bypStatus !== 0 : this._isOn(en.bypass_open);
+    // Reasons the bypass is held shut — only those we can actually derive from
+    // live values (empty when unexplained). Gates the diagram note + highlight.
+    const bypassReasons = bypassEnabled && !bypassOpen ? this._bypassReasons() : [];
     // Show the bypass route when the function is armed; add "open" (colour
     // gradient) when the damper is actually open, else it stays grey (closed).
     if (e.bp) {
@@ -1036,31 +1104,28 @@ class ThesslaGreenCard extends HTMLElement {
     }
     // Core pattern fades out when the exchanger is actually bypassed.
     if (e.hx) e.hx.style.opacity = bypassOpen ? "0.1" : "0.5";
-    // When enabled but closed, show the season activation threshold in the hexagon
-    // centre (e.g. "≥ 24°C") so it's clear when the bypass will open.
+    // Note in the hexagon centre — ONLY when we can explain why it's shut.
     if (e.bpThr) {
-      // Show the KOMFORT setpoint (8190) — the temp the bypass aims for — not the
-      // outdoor free-heat/cool thresholds (4322/4323), which the 800v doesn't use.
-      const comf = this._num(en.temp_comfort);
-      const showThr = bypassEnabled && !bypassOpen && comf !== null;
-      e.bpThr.style.display = showThr ? "" : "none";
-      if (e.bpThrT) e.bpThrT.textContent = showThr ? `${t("target")} ${Math.round(comf)}°C` : "";
+      const show = bypassReasons.length > 0;
+      e.bpThr.style.display = show ? "" : "none";
+      if (e.bpThrT) e.bpThrT.textContent = show ? bypassReasons[0].short : "";
     }
-    // Show BOTH facts at once: is the function enabled, and is the bypass open
-    // right now. "Enabled · Closed" = armed but idle (will auto-open when the
-    // conditions allow); green = open (active); dimmed = function disabled.
-    // Clicking still toggles the bypass function (reg 4320); the tooltip explains.
-    e.bypass.classList.toggle("on", bypassOpen);
-    e.bypass.classList.toggle("dim", !bypassEnabled);
+    // Bypass section: the toggle reflects the function enable (reg 4320); the
+    // state text shows open / closed / disabled; the derived reason (if any) is
+    // highlighted below. Clicking the section toggles the function.
+    e.bypass.classList.toggle("on", bypassEnabled);
+    e.bypass.classList.toggle("open", bypassEnabled && bypassOpen);
     e.bypassTxt.textContent = !bypassEnabled
       ? t("disabled")
-      : `${t("enabled")} · ${bypassOpen ? t("open") : t("closed")}`;
+      : bypassOpen ? t("open") : t("closed");
     e.bypass.title = !bypassEnabled
       ? t("bypass_hint_off")
-      : bypassOpen
-      ? t("bypass_hint_open")
-      : t("bypass_hint_closed");
-    // Config on the chip: KOMFORT setpoint + min outdoor temp the bypass needs.
+      : bypassOpen ? t("bypass_hint_open") : t("bypass_hint_closed");
+    if (e.bypassReason) {
+      e.bypassReason.textContent = bypassReasons
+        .map((r) => (r.detail ? `${r.label} · ${r.detail}` : r.label))
+        .join(" · ");
+    }
     if (e.bypassCfg) {
       const comf = this._num(en.temp_comfort);
       const bmin = this._num(en.bypass_min);
@@ -1070,26 +1135,20 @@ class ThesslaGreenCard extends HTMLElement {
         : "";
     }
 
-    // Metrics.
-    if (this._config.show_metrics) {
-      const eff = this._num(en.efficiency);
-      const pow = this._num(en.recovery_power);
-      const cop = this._num(en.cop);
-      e.mEff.textContent = eff === null ? "—" : `${Math.round(eff)}%`;
-      e.mPow.textContent = pow === null ? "—" : `${pow.toFixed(2)} kW`;
-      e.mCop.textContent = cop === null ? "—" : cop.toFixed(1);
-    }
-
-    // Filters.
-    const filterAlarm = this._isOn(en.filter_change);
-    e.filter.classList.toggle("warn", filterAlarm);
-    const fdays = this._num(en.filter_days); // fork: days to filter change (4660)
-    e.filterTxt.textContent = filterAlarm ? t("replace") : fdays !== null ? `${Math.round(fdays)} d` : t("ok");
-    if (e.filterCfg) {
-      const ws = this._num(en.filter_wear_sup); // 4482: supply filter wear %
-      const we = this._num(en.filter_wear_ext); // 4483: exhaust filter wear %
-      const parts = [ws, we].filter((v) => v !== null).map((v) => `${Math.round(v)}%`);
-      e.filterCfg.textContent = parts.length ? `${t("cfg_wear")} ${parts.join(" / ")}` : "";
+    // Stats section (borderless; only the cells enabled in config are present).
+    if (e.stEff) { const v = this._num(en.efficiency); e.stEff.textContent = v === null ? "—" : `${Math.round(v)}%`; }
+    if (e.stPow) { const v = this._num(en.recovery_power); e.stPow.textContent = v === null ? "—" : `${v.toFixed(2)} kW`; }
+    if (e.stCop) { const v = this._num(en.cop); e.stCop.textContent = v === null ? "—" : v.toFixed(1); }
+    if (e.stFilter) {
+      const filterAlarm = this._isOn(en.filter_change);
+      if (e.statFilters) e.statFilters.classList.toggle("warn", filterAlarm);
+      const fdays = this._num(en.filter_days); // 4660: days to filter change
+      e.stFilter.textContent = filterAlarm ? t("replace") : fdays !== null ? `${Math.round(fdays)} d` : t("ok");
+      if (e.stFilterSub) {
+        const ws = this._num(en.filter_wear_sup), we = this._num(en.filter_wear_ext); // 4482 / 4483 wear %
+        const parts = [ws, we].filter((v) => v !== null).map((v) => `${Math.round(v)}%`);
+        e.stFilterSub.textContent = parts.length ? parts.join(" / ") : "";
+      }
     }
 
     this._applyPending();
@@ -1115,6 +1174,8 @@ class ThesslaGreenCard extends HTMLElement {
               color:var(--primary-text-color); font-family:var(--paper-font-body1_-_font-family,inherit); }
       .wrap[data-off="true"] .diagram,
       .wrap[data-off="true"] .speed-row,
+      .wrap[data-off="true"] .bypass,
+      .wrap[data-off="true"] .stats,
       .wrap[data-off="true"] .modes { opacity:.42; filter:grayscale(.55); }
 
       /* Header */
@@ -1182,11 +1243,14 @@ class ThesslaGreenCard extends HTMLElement {
       .status[hidden] { display:none; }
 
       /* Unified mode tiles — always one row; columns adapt to width */
-      .modes { display:grid; grid-auto-flow:column; grid-auto-columns:1fr; gap:8px; }
+      /* Equal columns: minmax(0,1fr) lets a long single word (e.g. "Wietrzenie")
+         shrink/wrap instead of stretching its column wider than the rest. */
+      .modes { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(0,1fr); gap:8px; }
       .mtile { display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
                gap:6px; padding:12px 3px; border-radius:14px; background:var(--secondary-background-color);
-               border:1px solid var(--divider-color); color:var(--secondary-text-color);
-               font-size:.72rem; font-weight:600; line-height:1.15; text-align:center; transition:.15s; }
+               border:1px solid var(--divider-color); color:var(--secondary-text-color); min-width:0;
+               font-size:.72rem; font-weight:600; line-height:1.15; text-align:center; transition:.15s;
+               overflow-wrap:anywhere; hyphens:auto; }
       .mtile .ic { width:24px; height:24px; }
       .mtile .msub { font-size:.62rem; font-weight:600; opacity:.65; font-variant-numeric:tabular-nums; }
       .mtile .msub:empty { display:none; }
@@ -1225,30 +1289,43 @@ class ThesslaGreenCard extends HTMLElement {
                    color:var(--primary-text-color); text-shadow:0 1px 2px rgba(0,0,0,.18); pointer-events:none; }
       .speed-track.pending .speed-cap { visibility:hidden; }  /* spinner takes the centre */
 
-      /* Metrics */
-      .metrics { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
-      .metric { display:flex; flex-direction:column; align-items:center; gap:2px; padding:12px 2px;
-                border-radius:12px; background:var(--secondary-background-color); border:1px solid var(--divider-color); }
-      .metric .mv { font-size:1.25rem; font-weight:700; color:var(--tg-accent-d); font-variant-numeric:tabular-nums; }
-      .metric .ml { font-size:.7rem; color:var(--secondary-text-color); text-transform:uppercase; letter-spacing:.5px; }
+      /* Bypass — its own section: icon + title/state/config + a toggle switch */
+      .bypass { display:flex; align-items:center; gap:12px; width:100%; text-align:left;
+                padding:12px 14px; border-radius:14px; background:var(--secondary-background-color); transition:.15s; }
+      .bypass-ic { flex:0 0 auto; color:var(--secondary-text-color); display:grid; place-items:center; }
+      .bypass-ic .ic { width:24px; height:24px; fill:currentColor; }
+      .bypass-info { display:flex; flex-direction:column; gap:1px; flex:1; min-width:0; }
+      .bypass-title { font-size:.95rem; font-weight:600; color:var(--primary-text-color); }
+      .bypass-state { font-size:.78rem; color:var(--secondary-text-color); }
+      .bypass-cfg { font-size:.68rem; color:var(--secondary-text-color); opacity:.8;
+                    font-variant-numeric:tabular-nums; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+      .bypass-cfg:empty { display:none; }
+      /* Derived reason the bypass is held shut (highlighted). */
+      .bypass-reason { font-size:.72rem; font-weight:600; color:var(--tg-warn);
+                       white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+      .bypass-reason:empty { display:none; }
+      .bypass.open .bypass-reason { display:none; }
+      .bypass-sw { flex:0 0 auto; width:42px; height:24px; border-radius:999px;
+                   background:var(--divider-color); position:relative; transition:.2s; }
+      .bypass-sw i { position:absolute; top:2px; left:2px; width:20px; height:20px; border-radius:50%;
+                     background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.25); transition:.2s; }
+      .bypass.on .bypass-sw { background:var(--tg-accent); }
+      .bypass.on .bypass-sw i { left:20px; }
+      .bypass.on .bypass-ic { color:var(--tg-accent); }
+      .bypass.open .bypass-state { color:var(--tg-accent); font-weight:600; }
 
-      /* Chips (consistent active styling with mode tiles) */
-      .chips { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-      .chip { display:flex; align-items:center; gap:8px; padding:10px 12px; border-radius:12px;
-              background:var(--secondary-background-color); border:1px solid var(--divider-color);
-              font-size:.85rem; color:var(--secondary-text-color); min-width:0; }
-      .chip .ic { width:20px; height:20px; flex:0 0 auto; }
-      .chip > span { flex:0 0 auto; }
-      .chip b { color:var(--primary-text-color); font-weight:600;
-                min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-      .chip-val { margin-left:auto; display:flex; flex-direction:column; align-items:flex-end; line-height:1.15; min-width:0; }
-      .chip-cfg { font-size:.62rem; font-weight:600; opacity:.7; font-variant-numeric:tabular-nums; white-space:nowrap; }
-      .chip-cfg:empty { display:none; }
-      .chip.on { background:var(--tg-accent); border-color:var(--tg-accent); color:var(--tg-on-accent); }
-      .chip.on .ic, .chip.on b { fill:var(--tg-on-accent); color:var(--tg-on-accent); }
-      .chip.warn { background:var(--tg-crit); border-color:var(--tg-crit); color:#fff; }
-      .chip.warn .ic, .chip.warn b { fill:#fff; color:#fff; }
-      .chip.dim { opacity:.5; }
+      /* Stats — light, borderless readouts separated by hairlines (not buttons) */
+      .stats { display:flex; align-items:stretch; }
+      .stat { flex:1 1 0; min-width:0; display:flex; flex-direction:column; align-items:center;
+              justify-content:center; gap:2px; padding:8px 6px; border-radius:10px; transition:.15s; }
+      .stat + .stat { border-left:1px solid var(--divider-color); }
+      .stat:hover { background:var(--secondary-background-color); }
+      .stat .sv { font-size:1.2rem; font-weight:700; color:var(--tg-accent-d);
+                  font-variant-numeric:tabular-nums; line-height:1.1; }
+      .stat .sl { font-size:.64rem; color:var(--secondary-text-color); text-transform:uppercase; letter-spacing:.5px; }
+      .stat .ss { font-size:.62rem; color:var(--secondary-text-color); font-variant-numeric:tabular-nums; }
+      .stat .ss:empty { display:none; }
+      .stat.warn .sv { color:var(--tg-crit); }
 
       /* Optimistic-state locking */
       .blocked { opacity:.4 !important; pointer-events:none; }
@@ -1258,7 +1335,7 @@ class ThesslaGreenCard extends HTMLElement {
                         border-radius:50%; animation:tgspin .7s linear infinite; }
       @keyframes tgspin { to { transform:rotate(360deg); } }
 
-      button:focus-visible, .metric:focus-visible { outline:2px solid var(--tg-accent); outline-offset:2px; }
+      button:focus-visible { outline:2px solid var(--tg-accent); outline-offset:2px; }
       @media (prefers-reduced-motion:reduce) { .flow { animation:none !important; } .pending::after { animation:none; } }
     `;
   }
@@ -1279,7 +1356,7 @@ const EDITOR_ROLES = [
 const EDITOR_I18N = {
   en: {
     name: "Name", show_diagram: "Airflow diagram",
-    show_metrics: "Metrics (efficiency / COP)", functions: "Special functions shown",
+    show_metrics: "Statistics section", functions: "Special functions shown", metrics: "Statistics shown",
     accent: "Colours", accent_theme: "Home Assistant theme", accent_thessla: "ThesslaGreen",
     entities: "Entities (override auto-detection)",
     power: "Power (switch)", mode_switch: "Mode Auto/Manual (switch)", mode_state: "Mode state (sensor)",
@@ -1294,7 +1371,7 @@ const EDITOR_I18N = {
   },
   pl: {
     name: "Nazwa", show_diagram: "Schemat przepływu",
-    show_metrics: "Metryki (sprawność / COP)", functions: "Widoczne funkcje specjalne",
+    show_metrics: "Sekcja statystyk", functions: "Widoczne funkcje specjalne", metrics: "Widoczne statystyki",
     accent: "Kolory", accent_theme: "Motyw Home Assistant", accent_thessla: "ThesslaGreen",
     entities: "Encje (nadpisanie auto-wykrywania)",
     power: "Zasilanie (switch)", mode_switch: "Tryb Auto/Ręczny (switch)", mode_state: "Stan trybu (sensor)",
@@ -1374,6 +1451,16 @@ class ThesslaGreenCardEditor extends HTMLElement {
         },
       },
       {
+        name: "metrics",
+        selector: {
+          select: {
+            multiple: true,
+            mode: "list",
+            options: STATS.map((s) => ({ value: s.key, label: I18N[lang][s.label] })),
+          },
+        },
+      },
+      {
         type: "expandable",
         name: "",
         title: t("entities"),
@@ -1394,6 +1481,7 @@ class ThesslaGreenCardEditor extends HTMLElement {
       show_metrics: c.show_metrics !== false,
       accent: c.accent === "thessla" ? "thessla" : "theme",
       functions: Array.isArray(c.functions) ? c.functions : SPECIAL_FUNCTIONS.map((f) => f.option),
+      metrics: Array.isArray(c.metrics) ? c.metrics : STATS.map((s) => s.key),
       ...(c.entities || {}),
     };
   }
@@ -1442,6 +1530,10 @@ class ThesslaGreenCardEditor extends HTMLElement {
     const allFns = SPECIAL_FUNCTIONS.map((f) => f.option);
     if (Array.isArray(value.functions) && value.functions.length && value.functions.length < allFns.length) {
       out.functions = value.functions;
+    }
+    const allStats = STATS.map((s) => s.key);
+    if (Array.isArray(value.metrics) && value.metrics.length && value.metrics.length < allStats.length) {
+      out.metrics = value.metrics;
     }
     if (Object.keys(entities).length) out.entities = entities;
 
