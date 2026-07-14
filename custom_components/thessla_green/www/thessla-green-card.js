@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "3.0.0-rc.9";
+const TG_VERSION = "3.0.0-rc.10";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -230,9 +230,9 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 // Optimistic-state locking (Modbus writes + a refresh can take a few seconds).
 const PENDING_TIMEOUT = 15000;
-// Manual-intensity slider: coalesce rapid clicks/drags into a single write. The
-// modbus request fires only after the user has been quiet this long (ms).
-const SPEED_DEBOUNCE = 450;
+// Manual-intensity slider: coalesce dragging into a single write. The modbus
+// request fires only after the user has been quiet this long (ms).
+const SPEED_DEBOUNCE = 900;
 const SCOPE_ALL = ["power", "season", "intensity", "modes", "bypass"];
 
 class ThesslaGreenCard extends HTMLElement {
@@ -250,7 +250,6 @@ class ThesslaGreenCard extends HTMLElement {
     if (!config) throw new Error("Missing configuration");
     this._config = {
       name: config.name,
-      speed_step: Number(config.speed_step ?? 5),
       show_metrics: config.show_metrics !== false,
       show_diagram: config.show_diagram !== false,
       functions: Array.isArray(config.functions) ? config.functions : null,
@@ -466,14 +465,14 @@ class ThesslaGreenCard extends HTMLElement {
 
           <div class="modes" data-el="modes">${modeTiles}</div>
 
-          <!-- Intensity: only shown/editable in Manual mode -->
+          <!-- Intensity: only shown/editable in Manual mode. Native range input
+               (drag-friendly); gradient fill via --pct, caption overlaid. -->
           <div class="speed-row" data-el="speed-row">
-            <button class="round" data-el="speed-dn" title="−">−</button>
-            <div class="speed-track" data-el="speed-track">
-              <div class="speed-fill" data-el="speed-fill"></div>
+            <div class="speed-track">
+              <input class="speed-input" data-el="speed-input" type="range" min="0" max="100" step="1" value="0"
+                     aria-label="${t("intensity")}" />
               <span class="speed-cap" data-el="speed-cap">${t("intensity")}</span>
             </div>
-            <button class="round" data-el="speed-up" title="+">+</button>
           </div>
 
           ${
@@ -505,11 +504,8 @@ class ThesslaGreenCard extends HTMLElement {
       seasonTxt: q("season-txt"),
       status: q("status"),
       speedRow: q("speed-row"),
-      speedFill: q("speed-fill"),
+      speedInput: q("speed-input"),
       speedCap: q("speed-cap"),
-      speedDn: q("speed-dn"),
-      speedUp: q("speed-up"),
-      track: q("speed-track"),
       modes: q("modes"),
       mEff: q("m-eff"),
       mPow: q("m-pow"),
@@ -783,36 +779,28 @@ class ThesslaGreenCard extends HTMLElement {
     };
 
     // Base the next step on the pending (optimistic) value while debouncing, so
-    // repeated +/- clicks accumulate from what's on screen, not the stale entity.
-    const cur = () => {
-      if (this._speedTarget !== null) return this._speedTarget;
-      const s = this._num(en().speed);
-      return s === null ? 0 : s;
+    // Native range slider. Dragging fires `input` continuously → we paint the
+    // fill optimistically and (re)arm a debounce; the modbus write goes out only
+    // after SPEED_DEBOUNCE ms of no further movement, so one drag = one request.
+    const input = this._e.speedInput;
+    const paint = (v) => {
+      input.style.setProperty("--pct", v);
+      this._e.speedCap.textContent = `${this._t("intensity")} · ${v}%`;
     };
-    // Debounced write: update the optimistic UI immediately and (re)arm a timer;
-    // the modbus request fires only after SPEED_DEBOUNCE ms of no further input,
-    // so a burst of clicks/drags collapses into one write of the final value.
-    const queueSpeed = (val, spinEl) => {
-      this._speedTarget = val;
-      this._e.speedFill.style.width = `${val}%`;
-      this._e.speedCap.textContent = `${this._t("intensity")} · ${val}%`;
+    input.oninput = () => {
+      const v = clamp(Math.round(Number(input.value)), 0, 100);
+      this._speedTarget = v;
+      paint(v);
       clearTimeout(this._speedTimer);
       this._speedTimer = setTimeout(() => {
         this._speedTimer = null;
         const target = this._speedTarget;
         this._setNumber(en().speed, target);
-        this._lock(["intensity"], spinEl, () => {
+        this._lock(["intensity"], input, () => {
           const n = this._num(en().speed);
           return n !== null && Math.round(n) === target;
         });
       }, SPEED_DEBOUNCE);
-    };
-    this._e.speedDn.onclick = () => queueSpeed(clamp(cur() - this._config.speed_step, 0, 100), this._e.speedDn);
-    this._e.speedUp.onclick = () => queueSpeed(clamp(cur() + this._config.speed_step, 0, 100), this._e.speedUp);
-    this._e.track.onclick = (ev) => {
-      const r = this._e.track.getBoundingClientRect();
-      const val = clamp(Math.round(((ev.clientX - r.left) / r.width) * 100), 0, 100);
-      queueSpeed(val, this._e.track);
     };
 
     this._e.modeTiles.forEach((tl) => {
@@ -864,9 +852,6 @@ class ThesslaGreenCard extends HTMLElement {
     };
     apply(this._e.power, "power");
     apply(this._e.season, "season");
-    apply(this._e.speedDn, "intensity");
-    apply(this._e.speedUp, "intensity");
-    apply(this._e.track, "intensity");
     this._e.modeTiles.forEach((tl) => tl.dataset.kind !== "temp" && apply(tl, "modes"));
     apply(this._e.bypass, "bypass");
   }
@@ -924,9 +909,12 @@ class ThesslaGreenCard extends HTMLElement {
     // the optimistic value and show the entity truth.
     if (this._speedTarget !== null && !intensityPending && speedRaw !== null) this._speedTarget = null;
     const speed = this._speedTarget !== null ? this._speedTarget : speedRaw;
-    const speedPct = clamp(speed ?? 0, 0, 100);
-    e.speedFill.style.width = `${speedPct}%`;
-    e.speedCap.textContent = speed === null ? t("intensity") : `${t("intensity")} · ${Math.round(speedPct)}%`;
+    const speedPct = Math.round(clamp(speed ?? 0, 0, 100));
+    // Don't yank the thumb from under the user's finger: only sync the input's
+    // value from state when nothing is pending. Always keep the fill (--pct) in sync.
+    if (!intensityPending) e.speedInput.value = String(speedPct);
+    e.speedInput.style.setProperty("--pct", speedPct);
+    e.speedCap.textContent = speed === null ? t("intensity") : `${t("intensity")} · ${speedPct}%`;
 
     // Real current airflow (registers 256/257) — truthful in every mode.
     const flowSup = this._num(en.flow_supply);
@@ -1213,18 +1201,22 @@ class ThesslaGreenCard extends HTMLElement {
       .mtile.ro.active .ic { fill:var(--tg-summer); }
       .mtile[hidden] { display:none; }
 
-      /* Intensity */
+      /* Intensity — native range slider styled as a filled bar with a handle */
       .speed-row { display:flex; align-items:center; gap:12px; }
       .speed-row[hidden] { display:none; }
-      .round { width:40px; height:40px; flex:0 0 auto; border-radius:50%; font-size:1.4rem; line-height:1;
-               background:var(--secondary-background-color); border:1px solid var(--divider-color);
-               display:grid; place-items:center; }
-      .round:active { transform:scale(.94); }
-      .speed-track { position:relative; flex:1; height:34px; border-radius:10px;
-                     background:var(--secondary-background-color); overflow:hidden; cursor:pointer;
-                     border:1px solid var(--divider-color); }
-      .speed-fill { position:absolute; inset:0 auto 0 0; width:0;
-                    background:linear-gradient(90deg,var(--tg-accent-d),var(--tg-accent)); transition:width .4s ease; }
+      .speed-track { position:relative; flex:1; height:34px; }
+      .speed-input { -webkit-appearance:none; appearance:none; width:100%; height:34px; margin:0;
+                     border-radius:10px; border:1px solid var(--divider-color); cursor:pointer; outline:none;
+                     background:
+                       linear-gradient(90deg,var(--tg-accent-d),var(--tg-accent)) 0 0 / calc(var(--pct,0) * 1%) 100% no-repeat,
+                       var(--secondary-background-color); }
+      .speed-input:focus-visible { border-color:var(--tg-accent); }
+      .speed-input::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:10px; height:34px;
+                     border:none; border-radius:6px; background:#fff; box-shadow:0 0 0 1px rgba(0,0,0,.18); cursor:grab; }
+      .speed-input::-webkit-slider-thumb:active { cursor:grabbing; }
+      .speed-input::-moz-range-thumb { width:10px; height:34px; border:none; border-radius:6px;
+                     background:#fff; box-shadow:0 0 0 1px rgba(0,0,0,.18); cursor:grab; }
+      .speed-input::-moz-range-track { background:transparent; border:none; }
       .speed-cap { position:absolute; inset:0; display:grid; place-items:center; font-size:.78rem; font-weight:600;
                    color:var(--primary-text-color); text-shadow:0 1px 2px rgba(0,0,0,.18); pointer-events:none; }
 
@@ -1281,7 +1273,7 @@ const EDITOR_ROLES = [
 
 const EDITOR_I18N = {
   en: {
-    name: "Name", speed_step: "Intensity step (%)", show_diagram: "Airflow diagram",
+    name: "Name", show_diagram: "Airflow diagram",
     show_metrics: "Metrics (efficiency / COP)", functions: "Special functions shown",
     accent: "Colours", accent_theme: "Home Assistant theme", accent_thessla: "ThesslaGreen",
     entities: "Entities (override auto-detection)",
@@ -1296,7 +1288,7 @@ const EDITOR_I18N = {
     comfort: "ECO/Comfort", erv: "ERV mode",
   },
   pl: {
-    name: "Nazwa", speed_step: "Krok intensywności (%)", show_diagram: "Schemat przepływu",
+    name: "Nazwa", show_diagram: "Schemat przepływu",
     show_metrics: "Metryki (sprawność / COP)", functions: "Widoczne funkcje specjalne",
     accent: "Kolory", accent_theme: "Motyw Home Assistant", accent_thessla: "ThesslaGreen",
     entities: "Encje (nadpisanie auto-wykrywania)",
@@ -1352,7 +1344,6 @@ class ThesslaGreenCardEditor extends HTMLElement {
     const t = (k) => this._ed(k);
     return [
       { name: "name", selector: { text: {} } },
-      { name: "speed_step", selector: { number: { min: 1, max: 50, step: 1, mode: "box" } } },
       { name: "show_diagram", selector: { boolean: {} } },
       { name: "show_metrics", selector: { boolean: {} } },
       {
@@ -1394,7 +1385,6 @@ class ThesslaGreenCardEditor extends HTMLElement {
     const c = this._config || {};
     return {
       name: c.name ?? "",
-      speed_step: c.speed_step ?? 5,
       show_diagram: c.show_diagram !== false,
       show_metrics: c.show_metrics !== false,
       accent: c.accent === "thessla" ? "thessla" : "theme",
@@ -1441,7 +1431,6 @@ class ThesslaGreenCardEditor extends HTMLElement {
 
     const out = { type: this._config.type || "custom:thessla-green-card" };
     if (value.name) out.name = value.name;
-    if (value.speed_step != null) out.speed_step = value.speed_step;
     if (value.show_diagram === false) out.show_diagram = false;
     if (value.show_metrics === false) out.show_metrics = false;
     if (value.accent === "thessla") out.accent = "thessla";

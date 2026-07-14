@@ -1,5 +1,12 @@
 # Fork changes — extra Modbus registers
 
+**v0.5.0-rc.12** — real drag slider for intensity (card **3.0.0-rc.10**).
+- The manual-intensity control is now a native **`<input type="range">`** — it drags like a proper
+  slider (was click/tap-only). Same filled-bar look (gradient fill via `--pct`, centred caption) plus
+  a handle. Removed the **+/- buttons** and the **`speed_step`** config option (no longer needed).
+- Debounce raised to **900 ms**: drag freely; the modbus write goes out only after you stop moving.
+  The fill tracks your finger optimistically and reconciles with the device once it confirms.
+
 **v0.5.0-rc.11** — debounced intensity slider + status tidy (card **3.0.0-rc.9**).
 - **Manual-intensity slider is now debounced.** Every click/drag used to fire a modbus write
   immediately; now the writes are coalesced — the request goes out only after ~450 ms of no further
