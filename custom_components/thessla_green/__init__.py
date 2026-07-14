@@ -7,13 +7,48 @@ from .modbus_controller import ThesslaGreenModbusController
 from .coordinator import ThesslaGreenCoordinator
 
 import logging
+import os
 
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = ["sensor", "switch", "binary_sensor", "select", "number"]
 
+# Lovelace card bundled with the integration. It is served from the integration
+# folder and auto-registered as a frontend JS module, so the user does not have
+# to copy the file to /config/www/ or add a dashboard resource by hand.
+CARD_VERSION = "2.1.0"  # bump to bust the browser cache after card changes
+CARD_URL = f"/{DOMAIN}/thessla-green-card.js"
+CARD_PATH = os.path.join(os.path.dirname(__file__), "www", "thessla-green-card.js")
+
+
+async def _register_card(hass: HomeAssistant) -> None:
+    """Serve the bundled card and auto-load it as a frontend module."""
+    if not os.path.exists(CARD_PATH):
+        _LOGGER.debug("Bundled card not found at %s — skipping auto-register", CARD_PATH)
+        return
+    # 1) Serve the file (new async API, fall back to the legacy sync one).
+    try:
+        from homeassistant.components.http import StaticPathConfig
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig(CARD_URL, CARD_PATH, False)]
+        )
+    except Exception:  # noqa: BLE001 — best-effort across HA versions
+        try:
+            hass.http.register_static_path(CARD_URL, CARD_PATH, False)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning("Could not serve the ThesslaGreen card: %s", e)
+            return
+    # 2) Auto-load it as a JS module on the frontend (no manual resource needed).
+    try:
+        from homeassistant.components.frontend import add_extra_js_url
+        add_extra_js_url(hass, f"{CARD_URL}?v={CARD_VERSION}")
+    except Exception as e:  # noqa: BLE001
+        _LOGGER.warning("Could not auto-register the ThesslaGreen card module: %s", e)
+
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up from YAML (not used)."""
+    """Set up from YAML (not used) + register the bundled Lovelace card."""
+    await _register_card(hass)
     return True
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

@@ -26,6 +26,29 @@ SENSORS = [
     # Statusy i flagi
     {"name": "Rekuperator tryb pracy", "address": 4208, "input_type": "holding", "icon": "mdi:cog"},
     {"name": "Rekuperator speedmanual", "address": 4210, "input_type": "holding", "unit": "%", "icon": "mdi:speedometer"},
+
+    # === Rozszerzone rejestry (fork) — potwierdzone sondą na urządzeniu ===
+    # Efektywne wysterowanie wentylatorów (PWM 0..4095 -> %), działa w każdym trybie
+    {"name": "Rekuperator Wydajność nawiew", "address": 1280, "input_type": "holding", "scale": 0.02442, "precision": 0, "unit": "%", "icon": "mdi:fan"},
+    {"name": "Rekuperator Wydajność wywiew", "address": 1281, "input_type": "holding", "scale": 0.02442, "precision": 0, "unit": "%", "icon": "mdi:fan"},
+    {"name": "Rekuperator Nagrzewnica", "address": 1282, "input_type": "holding", "scale": 0.02442, "precision": 0, "unit": "%", "icon": "mdi:radiator"},
+    {"name": "Rekuperator Chłodnica", "address": 1283, "input_type": "holding", "scale": 0.02442, "precision": 0, "unit": "%", "icon": "mdi:snowflake"},
+    # Nominalny strumień (100%) — referencja do liczenia % i skalowania
+    {"name": "Rekuperator Strumień nominalny nawiew", "address": 4354, "input_type": "holding", "scale": 1, "precision": 0, "unit": "m3/h", "icon": "mdi:fan-chevron-up"},
+    {"name": "Rekuperator Strumień nominalny wywiew", "address": 4355, "input_type": "holding", "scale": 1, "precision": 0, "unit": "m3/h", "icon": "mdi:fan-chevron-down"},
+    # Prawdziwy status bypassu (0=nieaktywny, 1/2=aktywny)
+    {"name": "Rekuperator Status bypass", "address": 4330, "input_type": "holding", "icon": "mdi:valve"},
+    # Kod alarmu blokującego (0 = brak)
+    {"name": "Rekuperator Kod alarmu", "address": 4384, "input_type": "holding", "icon": "mdi:alert-circle-outline"},
+    # Temperatury zadane (x0.5 °C)
+    {"name": "Rekuperator Temperatura zadana", "address": 4212, "input_type": "holding", "scale": 0.5, "precision": 1, "unit": UnitOfTemperature.CELSIUS, "icon": "mdi:thermometer-lines"},
+    {"name": "Rekuperator Temperatura komfort", "address": 8190, "input_type": "holding", "scale": 0.5, "precision": 1, "unit": UnitOfTemperature.CELSIUS, "icon": "mdi:home-thermometer"},
+    # Konfiguracja funkcji Wietrzenie
+    {"name": "Rekuperator Wietrzenie intensywność", "address": 4230, "input_type": "holding", "unit": "%", "icon": "mdi:weather-windy"},
+    {"name": "Rekuperator Wietrzenie czas", "address": 4233, "input_type": "holding", "unit": "min", "icon": "mdi:timer-outline"},
+    # Dni do wymiany filtrów
+    {"name": "Rekuperator Filtr nawiew dni", "address": 4660, "input_type": "holding", "unit": "d", "icon": "mdi:air-filter"},
+    {"name": "Rekuperator Filtr wywiew dni", "address": 4662, "input_type": "holding", "unit": "d", "icon": "mdi:air-filter"},
 ]
 
 async def async_setup_entry(
