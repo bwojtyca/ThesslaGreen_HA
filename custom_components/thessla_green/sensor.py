@@ -132,6 +132,7 @@ async def async_setup_entry(
         RekuEfficiencySensor(coordinator=coordinator, slave=slave),
         RekuRecoveryPowerSensor(coordinator=coordinator, slave=slave),
         RekuCOPSensor(coordinator=coordinator, slave=slave, power_entity=power_entity),
+        RekuScheduleSensor(coordinator=coordinator, slave=slave),
     ])
 
     async_add_entities(entities)
@@ -424,3 +425,77 @@ class RekuCOPSensor(_BaseComputedSensor):
 
         q_kw = 0.000335 * flow * (Ts - To)
         self._attr_native_value = round(q_kw / p_kw, 2) if q_kw > 0 else None
+
+
+# =============================
+#  Harmonogram trybu AUTO (regs 16-180)
+# =============================
+
+class RekuScheduleSensor(SensorEntity):
+    """Weekly Auto schedule parsed into attributes for the card.
+
+    Base schedule = 4 time-slots/day/season (start [BCD GGMM] + intensity %/target
+    temp [0xAATT]); airing schedule = one start time/day/season. Exposed as nested
+    attributes (summer/winter → 7 days) so the card can draw the timeline + calendar.
+    """
+    _attr_should_poll = False
+
+    def __init__(self, coordinator: ThesslaGreenCoordinator, slave: int):
+        self.coordinator = coordinator
+        self._slave = slave
+        self._attr_name = "Rekuperator Harmonogram"
+        self._attr_icon = "mdi:calendar-clock"
+        self._attr_unique_id = f"thessla_schedule_{slave}"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, f"{slave}")},
+            "name": "Rekuperator Thessla",
+            "manufacturer": "Thessla Green",
+            "model": "Modbus Rekuperator",
+        }
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.last_update_success
+
+    @staticmethod
+    def _bcd(b: int) -> int:
+        return (b >> 4) * 10 + (b & 0xF)
+
+    def _time(self, v):
+        # BCD [GGMM]; 0x2400 / 0xA200 are the "disabled" sentinels.
+        if v is None or v in (0x2400, 0xA200):
+            return None
+        return f"{self._bcd(v >> 8):02d}:{self._bcd(v & 0xFF):02d}"
+
+    def _season(self, h, tbase, ibase, abase):
+        days = []
+        for d in range(7):
+            slots = []
+            for s in range(4):
+                start = self._time(h.get(tbase + d * 4 + s))
+                it = h.get(ibase + d * 4 + s)
+                if start is not None and it is not None:
+                    slots.append({"start": start, "i": it >> 8, "t": (it & 0xFF) / 2})
+            days.append({"slots": slots, "airing": self._time(h.get(abase + d * 4))})
+        return days
+
+    @property
+    def native_value(self):
+        season = self.coordinator.safe_data.holding.get(4209)
+        return "Zima" if season == 1 else "Lato" if season == 0 else None
+
+    @property
+    def extra_state_attributes(self):
+        h = self.coordinator.safe_data.holding
+        if 16 not in h:  # schedule not read yet
+            return {}
+        return {
+            "season": "winter" if h.get(4209) == 1 else "summer",
+            "airing_duration": h.get(4233),   # min
+            "airing_intensity": h.get(4230),  # %
+            "summer": self._season(h, 16, 72, 128),
+            "winter": self._season(h, 44, 100, 156),
+        }
+
+    async def async_added_to_hass(self):
+        self.async_on_remove(self.coordinator.async_add_listener(self.async_write_ha_state))

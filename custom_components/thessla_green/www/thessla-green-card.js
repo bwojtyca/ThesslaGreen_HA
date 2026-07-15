@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "3.0.0";
+const TG_VERSION = "3.1.0-rc.1";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -65,6 +65,7 @@ const DEFAULT_ENTITIES = {
   temp_comfort: `sensor.${DEV}rekuperator_temperatura_komfort`, // 8190: KOMFORT setpoint (bypass ref)
   heater_pct: `sensor.${DEV}rekuperator_nagrzewnica`, // 1282: secondary/duct heater output %
   cooler_pct: `sensor.${DEV}rekuperator_chlodnica`, // 1283: duct cooler output %
+  schedule: `sensor.${DEV}rekuperator_harmonogram`, // parsed weekly Auto schedule (attrs)
   // per-mode configured intensities/durations (shown on the mode tiles)
   airing_pct: `sensor.${DEV}rekuperator_wietrzenie_intensywnosc`, // 4230
   airing_time: `sensor.${DEV}rekuperator_wietrzenie_czas`, // 4233
@@ -115,6 +116,7 @@ const ENTITY_RULES = {
   temp_comfort: { domain: "sensor", suffix: "temperatura_komfort" },
   heater_pct: { domain: "sensor", suffix: "nagrzewnica" },
   cooler_pct: { domain: "sensor", suffix: "chlodnica" },
+  schedule: { domain: "sensor", suffix: "harmonogram" },
   airing_pct: { domain: "sensor", suffix: "wietrzenie_intensywnosc" },
   airing_time: { domain: "sensor", suffix: "wietrzenie_czas" },
   away_pct: { domain: "sensor", suffix: "pusty_dom_intensywnosc" },
@@ -220,6 +222,7 @@ const I18N = {
     cfg_comfort: "comf", cfg_min: "min", cfg_wear: "wear",
     bpr_cold: "too cold outside", bpr_band: "room temp in range", bpr_nosupply: "supply fan stopped",
     bpr_cold_short: "too cold", bpr_band_short: "in range", bpr_nosupply_short: "no supply",
+    schedule_title: "Schedule", now: "now",
   },
   pl: {
     name: "Rekuperator", power: "Zasilanie", season: "Sezon", winter: "Zima", summer: "Lato",
@@ -236,6 +239,7 @@ const I18N = {
     cfg_comfort: "komf", cfg_min: "min", cfg_wear: "zużycie",
     bpr_cold: "za zimno na zewnątrz", bpr_band: "temperatura w normie", bpr_nosupply: "nawiew zatrzymany",
     bpr_cold_short: "za zimno", bpr_band_short: "w normie", bpr_nosupply_short: "nawiew stop",
+    schedule_title: "Harmonogram", now: "teraz",
   },
 };
 
@@ -271,6 +275,8 @@ class ThesslaGreenCard extends HTMLElement {
       show_metrics: config.show_metrics !== false,
       show_diagram: config.show_diagram !== false,
       show_bypass: config.show_bypass !== false,
+      show_schedule: config.show_schedule !== false,   // mini schedule chart (under Auto)
+      show_calendar: config.show_calendar === true,     // weekly schedule calendar (opt-in)
       functions: Array.isArray(config.functions) ? config.functions : null,
       metrics: Array.isArray(config.metrics) ? config.metrics : null,
       accent: config.accent === "thessla" ? "thessla" : "theme",
@@ -467,6 +473,146 @@ class ThesslaGreenCard extends HTMLElement {
     return reasons;
   }
 
+  // ---- Weekly Auto schedule (from the "Harmonogram" sensor attributes) -----
+  _schedule() {
+    const o = this._stateObj(this._entities.schedule);
+    const a = o && o.attributes;
+    return a && (a.summer || a.winter) ? a : null;
+  }
+  // HA locale preferences.
+  _firstWeekday() { // 0=Mon .. 6=Sun (schedule order)
+    const m = { monday: 0, tuesday: 1, wednesday: 2, thursday: 3, friday: 4, saturday: 5, sunday: 6 };
+    const fw = this._hass && this._hass.locale && this._hass.locale.first_weekday;
+    if (fw && m[fw] != null) return m[fw];
+    try {
+      const li = new Intl.Locale((this._hass && this._hass.locale && this._hass.locale.language) || "en");
+      const wi = li.weekInfo || (li.getWeekInfo && li.getWeekInfo());
+      if (wi && wi.firstDay) return (wi.firstDay - 1) % 7; // Intl 1=Mon..7=Sun
+    } catch (e) { /* ignore */ }
+    return 0;
+  }
+  _use12h() {
+    const tf = this._hass && this._hass.locale && this._hass.locale.time_format;
+    if (tf === "12") return true;
+    if (tf === "24") return false;
+    try { return !!new Intl.DateTimeFormat((this._hass.locale && this._hass.locale.language) || "en", { hour: "numeric" }).resolvedOptions().hour12; }
+    catch (e) { return false; }
+  }
+  _fmtHour(h) {
+    if (this._use12h()) { let x = h % 12; if (x === 0) x = 12; return `${x}${h < 12 ? "a" : "p"}`; }
+    return String(h).padStart(2, "0");
+  }
+  _dayNames() { // localized short names, index 0=Mon
+    const lang = (this._hass && this._hass.locale && this._hass.locale.language) || "en";
+    const f = new Intl.DateTimeFormat(lang, { weekday: "short" });
+    return [...Array(7)].map((_, i) => f.format(new Date(Date.UTC(2024, 0, 1 + i)))); // 2024-01-01 = Monday
+  }
+  _weekOrder() { const fw = this._firstWeekday(); return [...Array(7)].map((_, i) => (fw + i) % 7); }
+
+  _slotsSorted(day) {
+    return ((day && day.slots) || [])
+      .map((s) => { const [h, m] = s.start.split(":").map(Number); return { m: h * 60 + m, i: s.i }; })
+      .sort((a, b) => a.m - b.m);
+  }
+  // Base intensity active at Date d (falls back to the previous day's last slot).
+  _baseAt(days, d) {
+    const dow = (d.getDay() + 6) % 7;
+    const mins = d.getHours() * 60 + d.getMinutes();
+    let a = null;
+    for (const s of this._slotsSorted(days[dow])) if (s.m <= mins) a = s;
+    if (!a) { const p = this._slotsSorted(days[(dow + 6) % 7]); a = p[p.length - 1]; }
+    return a ? a.i : null;
+  }
+  // Step segments of base intensity across [start,end] (ms).
+  _baseSegments(days, start, end) {
+    const bounds = [start, end];
+    const day = new Date(start); day.setHours(0, 0, 0, 0);
+    for (; +day <= end; day.setDate(day.getDate() + 1)) {
+      const dow = (day.getDay() + 6) % 7;
+      for (const s of this._slotsSorted(days[dow])) {
+        const t = new Date(day); t.setMinutes(s.m);
+        if (+t > start && +t < end) bounds.push(+t);
+      }
+    }
+    const u = [...new Set(bounds)].sort((a, b) => a - b);
+    const segs = [];
+    for (let i = 0; i < u.length - 1; i++) segs.push({ t0: u[i], t1: u[i + 1], i: this._baseAt(days, new Date((u[i] + u[i + 1]) / 2)) });
+    return segs.filter((s) => s.i != null);
+  }
+  _airingWindows(days, sched, start, end) {
+    const dur = sched.airing_duration || 20, inten = sched.airing_intensity || 100, out = [];
+    const day = new Date(start); day.setHours(0, 0, 0, 0);
+    for (; +day <= end; day.setDate(day.getDate() + 1)) {
+      const a = days[(day.getDay() + 6) % 7].airing;
+      if (!a) continue;
+      const [hh, mm] = a.split(":").map(Number);
+      const t0 = new Date(day); t0.setHours(hh, mm, 0, 0);
+      const t1 = +t0 + dur * 60000;
+      if (t1 > start && +t0 < end) out.push({ t0: +t0, t1, i: inten });
+    }
+    return out;
+  }
+  _dateForDayHour(di, h) {
+    const now = new Date(), cur = (now.getDay() + 6) % 7, d = new Date(now);
+    d.setDate(now.getDate() + (di - cur)); d.setHours(h, 30, 0, 0); return d;
+  }
+
+  // Mini chart: base intensity over now-12h .. now+24h with airing + "now" marker.
+  _renderScheduleMini() {
+    const sched = this._schedule(); if (!sched) return "";
+    const days = sched[sched.season] || sched.summer; if (!days) return "";
+    const now = new Date(), start = +now - 12 * 3600e3, end = +now + 24 * 3600e3;
+    const segs = this._baseSegments(days, start, end); if (!segs.length) return "";
+    const airs = this._airingWindows(days, sched, start, end);
+    const W = 360, H = 92, padL = 6, padR = 6, yTop = 10, yBot = 76;
+    const x0 = padL, x1 = W - padR;
+    const xt = (t) => x0 + ((t - start) / (end - start)) * (x1 - x0);
+    const yv = (v) => yBot - (clamp(v, 0, 100) / 100) * (yBot - yTop);
+    let d = "";
+    segs.forEach((s, i) => { const y = yv(s.i).toFixed(1); d += `${i ? "L" : "M"}${xt(s.t0).toFixed(1)},${y}L${xt(s.t1).toFixed(1)},${y}`; });
+    const air = airs.map((a) => { const xa = xt(a.t0), xb = xt(a.t1); return `<rect class="sch-air" x="${xa.toFixed(1)}" y="${yv(a.i).toFixed(1)}" width="${Math.max(2, xb - xa).toFixed(1)}" height="${(yBot - yv(a.i)).toFixed(1)}"><title>${this._t("fn_airing")}</title></rect>`; }).join("");
+    let ticks = "";
+    const th = new Date(start); th.setMinutes(0, 0, 0);
+    for (; +th <= end; th.setHours(th.getHours() + 1)) {
+      if (th.getHours() % 6 || +th < start) continue;
+      const x = xt(+th).toFixed(1);
+      ticks += `<line class="sch-grid" x1="${x}" y1="${yTop}" x2="${x}" y2="${yBot}"/><text class="sch-tick" x="${x}" y="${H - 3}" text-anchor="middle">${this._fmtHour(th.getHours())}</text>`;
+    }
+    const xn = xt(+now).toFixed(1), nowI = this._baseAt(days, now);
+    return `<div class="sch-head"><span>${this._t("schedule_title")}</span><span class="sch-now-v">${nowI == null ? "" : `${this._t("now")} ${nowI}%`}</span></div>
+      <svg viewBox="0 0 ${W} ${H}" class="sch-svg" role="img" aria-label="${this._t("schedule_title")}">
+        ${ticks}<line class="sch-grid" x1="${x0}" y1="${yv(50).toFixed(1)}" x2="${x1}" y2="${yv(50).toFixed(1)}"/>
+        ${air}<path class="sch-line" d="${d}"/>
+        <line class="sch-now" x1="${xn}" y1="${yTop - 3}" x2="${xn}" y2="${yBot}"/><circle class="sch-now-d" cx="${xn}" cy="${yTop - 3}" r="2.4"/>
+      </svg>`;
+  }
+
+  // Weekly calendar: rows = days (locale first-weekday order), cols = 00–24h.
+  _renderCalendar() {
+    const sched = this._schedule(); if (!sched) return "";
+    const days = sched[sched.season] || sched.summer; if (!days) return "";
+    const names = this._dayNames(), order = this._weekOrder();
+    const W = 360, labelW = 30, top = 12, rowH = 15, H = top + 7 * rowH + 2;
+    const gx = labelW, gw = W - labelW - 4, cw = gw / 24;
+    const xcol = (h) => gx + h * cw;
+    let xl = "", yl = "", cells = "", air = "";
+    for (let h = 0; h <= 24; h += 6) xl += `<text class="cal-h" x="${xcol(h).toFixed(1)}" y="8" text-anchor="middle">${this._fmtHour(h % 24)}</text>`;
+    order.forEach((di, row) => {
+      const y = top + row * rowH;
+      yl += `<text class="cal-d" x="2" y="${(y + rowH / 2 + 3).toFixed(1)}">${names[di]}</text>`;
+      for (let h = 0; h < 24; h++) {
+        const iv = this._baseAt(days, this._dateForDayHour(di, h));
+        if (iv == null) continue;
+        const op = (0.12 + 0.88 * clamp(iv, 0, 100) / 100).toFixed(2);
+        cells += `<rect class="cal-c" x="${xcol(h).toFixed(1)}" y="${y + 1}" width="${cw.toFixed(2)}" height="${rowH - 2}" style="fill:var(--tg-accent);fill-opacity:${op}"><title>${names[di]} ${this._fmtHour(h)} · ${iv}%</title></rect>`;
+      }
+      const a = days[di].airing;
+      if (a) { const [hh, mm] = a.split(":").map(Number); const x = xcol(hh + mm / 60); const w = Math.max(2, ((sched.airing_duration || 20) / 60) * cw); air += `<rect class="cal-air" x="${x.toFixed(1)}" y="${y + 1}" width="${w.toFixed(1)}" height="${rowH - 2}"><title>${this._t("fn_airing")} ${a}</title></rect>`; }
+    });
+    return `<div class="sch-head"><span>${this._t("schedule_title")}</span><span class="sch-now-v">${sched.season === "winter" ? this._t("winter") : this._t("summer")}</span></div>
+      <svg viewBox="0 0 ${W} ${H}" class="cal-svg" role="img" aria-label="${this._t("schedule_title")}">${xl}${yl}${cells}${air}</svg>`;
+  }
+
   // ---- Render --------------------------------------------------------------
   _render() {
     if (!this._hass) return;
@@ -552,6 +698,9 @@ class ThesslaGreenCard extends HTMLElement {
             </div>
           </div>
 
+          <!-- Mini schedule chart: shown under the tiles when Auto is active -->
+          <div class="sched-mini" data-el="sched-mini" hidden></div>
+
           <!-- Bypass: its own section — toggle (enable/disable the function) plus
                readable state (open / closed / disabled) and its config. -->
           <button class="bypass" data-el="bypass"${c.show_bypass ? "" : " hidden"}>
@@ -570,6 +719,9 @@ class ThesslaGreenCard extends HTMLElement {
           </button>
 
           ${statsHtml}
+
+          <!-- Weekly schedule calendar (optional section) -->
+          <div class="sched-cal" data-el="sched-cal" hidden></div>
         </div>
       </ha-card>
     `;
@@ -588,6 +740,8 @@ class ThesslaGreenCard extends HTMLElement {
       speedTrack: q("speed-track"),
       speedInput: q("speed-input"),
       speedCap: q("speed-cap"),
+      schedMini: q("sched-mini"),
+      schedCal: q("sched-cal"),
       modes: q("modes"),
       stEff: q("st-eff"),
       stPow: q("st-pow"),
@@ -1179,6 +1333,18 @@ class ThesslaGreenCard extends HTMLElement {
       if (e.stWearExt) e.stWearExt.textContent = we === null ? "—" : `${Math.round(we)}%`;
     }
 
+    // Weekly schedule sections (from the Harmonogram sensor attributes).
+    if (e.schedMini) {
+      const html = this._config.show_schedule && mode === 0 ? this._renderScheduleMini() : "";
+      e.schedMini.innerHTML = html;
+      e.schedMini.hidden = !html;
+    }
+    if (e.schedCal) {
+      const html = this._config.show_calendar ? this._renderCalendar() : "";
+      e.schedCal.innerHTML = html;
+      e.schedCal.hidden = !html;
+    }
+
     this._applyPending();
   }
 
@@ -1346,6 +1512,23 @@ class ThesslaGreenCard extends HTMLElement {
       .bypass.on .bypass-ic { color:var(--tg-accent); }
       .bypass.open .bypass-state { color:var(--tg-accent); font-weight:600; }
 
+      /* Weekly schedule — mini chart + calendar */
+      .sched-mini[hidden], .sched-cal[hidden] { display:none; }
+      .sch-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:3px;
+                  font-size:.62rem; font-weight:600; letter-spacing:.5px; text-transform:uppercase;
+                  color:var(--secondary-text-color); }
+      .sch-now-v { text-transform:none; font-variant-numeric:tabular-nums; color:var(--tg-accent-d); }
+      .sch-svg, .cal-svg { width:100%; height:auto; display:block; }
+      .sch-line { fill:none; stroke:var(--tg-accent); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+      .sch-air { fill:var(--tg-warn); opacity:.85; }
+      .sch-grid { stroke:var(--divider-color); stroke-width:1; opacity:.5; }
+      .sch-tick, .cal-h, .cal-d { fill:var(--secondary-text-color); }
+      .sch-tick, .cal-h { font-size:8px; }
+      .cal-d { font-size:9px; }
+      .sch-now { stroke:var(--primary-text-color); stroke-width:1; stroke-dasharray:2 2; opacity:.55; }
+      .sch-now-d { fill:var(--primary-text-color); }
+      .cal-air { fill:var(--tg-warn); opacity:.9; }
+
       /* Stats — light, borderless readouts (hairline-separated). Label on top;
          only the value(s) are clickable, not the whole box. */
       .stats { display:flex; align-items:stretch; }
@@ -1394,6 +1577,7 @@ const EDITOR_I18N = {
   en: {
     name: "Name", show_diagram: "Airflow diagram",
     show_bypass: "Bypass section", show_metrics: "Statistics section", functions: "Special functions shown", metrics: "Statistics shown",
+    show_schedule: "Schedule chart (under Auto)", show_calendar: "Schedule calendar",
     accent: "Colours", accent_theme: "Home Assistant theme", accent_thessla: "ThesslaGreen",
     entities: "Entities (override auto-detection)",
     power: "Power (switch)", mode_switch: "Mode Auto/Manual (switch)", mode_state: "Mode state (sensor)",
@@ -1409,6 +1593,7 @@ const EDITOR_I18N = {
   pl: {
     name: "Nazwa", show_diagram: "Schemat przepływu",
     show_bypass: "Sekcja bypass", show_metrics: "Sekcja statystyk", functions: "Widoczne funkcje specjalne", metrics: "Widoczne statystyki",
+    show_schedule: "Wykres harmonogramu (przy Auto)", show_calendar: "Kalendarz harmonogramu",
     accent: "Kolory", accent_theme: "Motyw Home Assistant", accent_thessla: "ThesslaGreen",
     entities: "Encje (nadpisanie auto-wykrywania)",
     power: "Zasilanie (switch)", mode_switch: "Tryb Auto/Ręczny (switch)", mode_state: "Stan trybu (sensor)",
@@ -1466,6 +1651,8 @@ class ThesslaGreenCardEditor extends HTMLElement {
       { name: "show_diagram", selector: { boolean: {} } },
       { name: "show_bypass", selector: { boolean: {} } },
       { name: "show_metrics", selector: { boolean: {} } },
+      { name: "show_schedule", selector: { boolean: {} } },
+      { name: "show_calendar", selector: { boolean: {} } },
       {
         name: "accent",
         selector: {
@@ -1518,6 +1705,8 @@ class ThesslaGreenCardEditor extends HTMLElement {
       show_diagram: c.show_diagram !== false,
       show_bypass: c.show_bypass !== false,
       show_metrics: c.show_metrics !== false,
+      show_schedule: c.show_schedule !== false,
+      show_calendar: c.show_calendar === true,
       accent: c.accent === "thessla" ? "thessla" : "theme",
       functions: Array.isArray(c.functions) ? c.functions : SPECIAL_FUNCTIONS.map((f) => f.option),
       metrics: Array.isArray(c.metrics) ? c.metrics : STATS.map((s) => s.key),
@@ -1566,6 +1755,8 @@ class ThesslaGreenCardEditor extends HTMLElement {
     if (value.show_diagram === false) out.show_diagram = false;
     if (value.show_bypass === false) out.show_bypass = false;
     if (value.show_metrics === false) out.show_metrics = false;
+    if (value.show_schedule === false) out.show_schedule = false;
+    if (value.show_calendar === true) out.show_calendar = true;
     if (value.accent === "thessla") out.accent = "thessla";
     const allFns = SPECIAL_FUNCTIONS.map((f) => f.option);
     if (Array.isArray(value.functions) && value.functions.length && value.functions.length < allFns.length) {

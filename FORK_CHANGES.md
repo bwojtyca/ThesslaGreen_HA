@@ -1,5 +1,17 @@
 # Fork changes — extra Modbus registers
 
+**v0.5.1-rc.1** — weekly Auto schedule exposed + card schedule sections (card **3.1.0-rc.1**).
+- Integration reads the **weekly Auto schedule** (regs 16-180: 4 time-slots/day/season with intensity
+  + target temp, and a per-day airing start time). Static config, so it's read on a slow cadence and
+  **cached** — no per-poll cost. Exposed as one **"Harmonogram"** sensor whose attributes hold the
+  parsed schedule (summer/winter → 7 days), plus airing duration/intensity. Block reads validated live
+  (device caps holding reads at ~17 regs → 16-reg chunks).
+- Card gains two **optional schedule sections** (both respect HA locale — 12/24 h + first-day-of-week):
+  - **Mini chart** under the mode tiles, shown when **Auto** is active: base intensity over the last
+    12 h + next 24 h as a step line, with airing windows and a "now" marker (`show_schedule`, on by default).
+  - **Calendar**: a weekly heat-grid (X = 00–24 h, Y = days) coloured by intensity with airing blocks
+    marked (`show_calendar`, opt-in).
+
 ## v0.5.0 (stable) — card 3.0.0
 
 First stable release of the 0.5.0 line (rc.1–rc.19 below). Highlights:

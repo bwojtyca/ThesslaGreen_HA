@@ -92,6 +92,16 @@ class ThesslaGreenModbusController:
         # switch positions, function inputs). One contiguous read 0-21.
         self._discrete_blocks = [(0, 22)]
 
+        # Weekly Auto schedule (regs 16-180): base intensity/temp per day-slot +
+        # airing start-time per day, both seasons. Static config, so it's read on a
+        # slow cadence and CACHED — always present in `holding` without adding these
+        # ~11 reads to every poll. Device caps holding reads at ~17 regs → 16-reg
+        # chunks (validated live on the 800v).
+        self._schedule_blocks = [(16, 16), (32, 16), (48, 16), (64, 16), (80, 16),
+                                 (96, 16), (112, 16), (128, 16), (144, 16), (160, 16), (176, 5)]
+        self._schedule_cache: dict[int, int] = {}
+        self._poll_count = 0
+
     async def stop(self):
         async with self._controller_lock:
             _LOGGER.info("Stopping Modbus controller for %s:%d", self._host, self._port)
@@ -138,6 +148,20 @@ class ThesslaGreenModbusController:
                     for i, val in enumerate(regs):
                         data_holding[start + i] = val
                     read_ok += len(regs)
+
+            # Weekly schedule (static): read on the first poll then every ~10 min,
+            # cached so it's always present in `holding` at no per-poll cost. Not
+            # counted toward read_ok (that must reflect live reachability).
+            self._poll_count += 1
+            if not self._schedule_cache or self._poll_count % 20 == 0:
+                for start, count in self._schedule_blocks:
+                    regs = await self._try_read_regs(self._client.read_holding_registers, start, count)
+                    if regs is not None:
+                        for i, val in enumerate(regs):
+                            self._schedule_cache[start + i] = val
+            if self._schedule_cache:
+                for addr, val in self._schedule_cache.items():
+                    data_holding.setdefault(addr, val)
 
             for start, count in self._input_blocks:
                 regs = await self._try_read_regs(self._client.read_input_registers, start, count)
