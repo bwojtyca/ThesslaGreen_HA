@@ -1,5 +1,12 @@
 # Fork changes — extra Modbus registers
 
+**v0.5.1-rc.7** — animation blend fix + mini-chart gating (card **3.1.0-rc.7**).
+- Flow-animation % now uses the **stable true % (272/273)** for the airflow part (blended with the fan
+  drive %), instead of the instantaneous flow (256/257) that briefly reads 0 on spin-up — so a fan at
+  40 % no longer animates slower than one at 20 %.
+- The **mini schedule chart hides unless the Auto tile is active** (not just base-mode Auto) — so it's
+  gone in Manual/Temporary and when a panel-selected special is running.
+
 **v0.5.1-rc.6** — smooth (bezier) flow-animation curve (card **3.1.0-rc.6**).
 - Flow-pulse speed now follows a **tunable cubic-bezier** curve (CSS-style) instead of a straight
   line — smooth, with a steep drop-off below 10 % and a fast top: **0 %→6 s, 10 %→2.7 s, 50 %→0.8 s,

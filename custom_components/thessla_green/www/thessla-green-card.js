@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "3.1.0-rc.6";
+const TG_VERSION = "3.1.0-rc.7";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -370,10 +370,16 @@ class ThesslaGreenCard extends HTMLElement {
   // % 272/273) and (b) fan drive % (DAC signal). Blending both means a fan maxed
   // out but only moving e.g. 550 m³/h still animates fast (not "slow").
   _fanAnimPct(flowRole, nomRole, effRole, driveRole) {
-    let flowP = null;
-    const f = this._num(this._entities[flowRole]), n = this._num(this._entities[nomRole]);
-    if (f !== null && n) flowP = clamp((f / n) * 100, 0, 100);
-    else { const e = this._num(this._entities[effRole]); if (e !== null) flowP = clamp(e, 0, 100); }
+    // Airflow %: prefer the device's true % (272/273) — stable and matching the
+    // on-diagram readout — over the instantaneous flow (256/257), which briefly
+    // reads 0 during spin-up. Fall back to measured flow ÷ nominal.
+    let flowP = this._num(this._entities[effRole]);
+    if (flowP === null) {
+      const f = this._num(this._entities[flowRole]), n = this._num(this._entities[nomRole]);
+      if (f !== null && n) flowP = (f / n) * 100;
+    }
+    if (flowP !== null) flowP = clamp(flowP, 0, 100);
+    // Fan drive % (DAC) so a maxed fan moving only modest air still animates fast.
     const dv = this._num(this._entities[driveRole]);
     const driveP = dv !== null ? clamp(dv, 0, 100) : null;
     if (flowP !== null && driveP !== null) return (flowP + driveP) / 2;
@@ -1490,7 +1496,10 @@ class ThesslaGreenCard extends HTMLElement {
 
     // Weekly schedule sections (from the Harmonogram sensor attributes).
     if (e.schedMini && e.schedPlot) {
-      const r = this._config.show_schedule && mode === 0 ? this._renderScheduleMini() : null;
+      // Show only when the Auto tile is the active mode (base Auto and no
+      // panel-selected special overriding it) — hidden in Manual/Temporary/specials.
+      const autoActive = mode === 0 && !(specialActive && !autoTrig);
+      const r = this._config.show_schedule && autoActive ? this._renderScheduleMini() : null;
       e.schedPlot.innerHTML = r ? r.plot : "";
       if (e.schedAxis) e.schedAxis.innerHTML = r ? r.axis : "";
       e.schedMini.hidden = !r;
