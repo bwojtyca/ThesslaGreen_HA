@@ -1,5 +1,14 @@
 # Fork changes — extra Modbus registers
 
+**v0.5.1-rc.3** — schedule mini-chart in a slider-style box (card **3.1.0-rc.3**).
+- The mini chart's plot now sits in a **box matching the intensity slider** (same background, border,
+  rounded corners and 34 px height) for visual consistency; the day/hour labels + "now" dot moved to an
+  axis row **below** the box.
+- Night overlay switched to **translucent black with feathered (blurred) edges** (~30–60 min fade at
+  sunrise/sunset), on both the mini chart and the calendar.
+- Overlays (night band, day line, "now" line) capped at the plot height (never above the 100 % airing
+  spike); strokes stay crisp under the stretched box (`non-scaling-stroke`).
+
 **v0.5.1-rc.2** — schedule chart polish (card **3.1.0-rc.2**).
 - **Mini chart**: dropped the headers; ~⅓ the height; **filled area** under the step line; **night
   shading** (from `sun.sun` sunrise/sunset); **date shown at midnight** on the axis; airing drawn in
