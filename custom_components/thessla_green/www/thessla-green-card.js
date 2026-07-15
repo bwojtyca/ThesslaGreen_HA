@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "3.1.0-rc.5";
+const TG_VERSION = "3.1.0-rc.6";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -254,6 +254,25 @@ function pickLang(hass) {
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
+// Cubic-bezier easing (CSS-style): control points P1(x1,y1) P2(x2,y2), with
+// P0=(0,0) P3=(1,1). Returns f(x)∈[0,1] (Newton-solve x→t, then y). Used for the
+// diagram flow-speed curve so it can be tuned with 4 numbers via `flow_curve`.
+const cubicBezier = (x1, y1, x2, y2) => {
+  const bx = (t) => 3 * (1 - t) ** 2 * t * x1 + 3 * (1 - t) * t * t * x2 + t ** 3;
+  const by = (t) => 3 * (1 - t) ** 2 * t * y1 + 3 * (1 - t) * t * t * y2 + t ** 3;
+  return (x) => {
+    let t = clamp(x, 0, 1);
+    for (let i = 0; i < 14; i++) {
+      const e = bx(t) - x; if (Math.abs(e) < 1e-4) break;
+      const d = (bx(t + 1e-4) - bx(t - 1e-4)) / 2e-4; if (Math.abs(d) < 1e-9) break;
+      t = clamp(t - e / d, 0, 1);
+    }
+    return by(t);
+  };
+};
+const FLOW_SPEED_MIN = 0.1, FLOW_SPEED_MAX = 6;   // seconds per pulse at 100% / 0% work
+const FLOW_CURVE_DEFAULT = [0.01, 0.8, 0.3, 0.85]; // ease-out: steep 0-10%, ~2.6s@10%, fast top
+
 // Optimistic-state locking (Modbus writes + a refresh can take a few seconds).
 const PENDING_TIMEOUT = 15000;
 // Manual-intensity slider: coalesce dragging into a single write. The modbus
@@ -281,11 +300,15 @@ class ThesslaGreenCard extends HTMLElement {
       show_bypass: config.show_bypass !== false,
       show_schedule: config.show_schedule !== false,   // mini schedule chart (under Auto)
       show_calendar: config.show_calendar === true,     // weekly schedule calendar (opt-in)
+      // Tunable flow-animation speed curve (cubic-bezier control points, CSS-style).
+      flow_curve: Array.isArray(config.flow_curve) && config.flow_curve.length === 4
+        && config.flow_curve.every((n) => typeof n === "number") ? config.flow_curve : FLOW_CURVE_DEFAULT,
       functions: Array.isArray(config.functions) ? config.functions : null,
       metrics: Array.isArray(config.metrics) ? config.metrics : null,
       accent: config.accent === "thessla" ? "thessla" : "theme",
       entities: { ...(config.entities || {}) },
     };
+    this._speedEase = cubicBezier(...this._config.flow_curve);  // built once per config
     this._entities = null;
     this._resolvedViaRegistry = false;
     this._built = false;
@@ -343,13 +366,18 @@ class ThesslaGreenCard extends HTMLElement {
     if (s !== null && e !== null) return Math.round((s + e) / 2);
     return Math.round(s ?? e);
   }
-  // Per-fan speed % = actual flow ÷ nominal (max). Uses the measured flow / nominal
-  // reference; falls back to the device's true % (272/273), then the DAC signal.
-  _fanSpeedPct(flowRole, nomRole, effRole, dacRole) {
+  // Per-fan animation % = average of (a) airflow % (flow ÷ nominal, else the true
+  // % 272/273) and (b) fan drive % (DAC signal). Blending both means a fan maxed
+  // out but only moving e.g. 550 m³/h still animates fast (not "slow").
+  _fanAnimPct(flowRole, nomRole, effRole, driveRole) {
+    let flowP = null;
     const f = this._num(this._entities[flowRole]), n = this._num(this._entities[nomRole]);
-    if (f !== null && n) return clamp((f / n) * 100, 0, 100);
-    const e = this._num(this._entities[effRole]); if (e !== null) return clamp(e, 0, 100);
-    const d = this._num(this._entities[dacRole]); return d !== null ? clamp(d, 0, 100) : null;
+    if (f !== null && n) flowP = clamp((f / n) * 100, 0, 100);
+    else { const e = this._num(this._entities[effRole]); if (e !== null) flowP = clamp(e, 0, 100); }
+    const dv = this._num(this._entities[driveRole]);
+    const driveP = dv !== null ? clamp(dv, 0, 100) : null;
+    if (flowP !== null && driveP !== null) return (flowP + driveP) / 2;
+    return flowP != null ? flowP : driveP;
   }
   // Config summary shown under each mode tile (intensity %, + duration for timed
   // modes; the manual/temporary setpoints stay visible on any mode).
@@ -1347,9 +1375,11 @@ class ThesslaGreenCard extends HTMLElement {
     // scaled linearly: 0% → 5s (slow crawl), 100% → 0.25s. Intake follows the
     // supply fan, extract the exhaust fan; supply/exhaust ducts blend both
     // (75/25 and 25/75) since after the exchanger the streams mix.
-    const spPct = this._fanSpeedPct("flow_supply", "nom_sup", "eff_sup", "fan_supply_pct");
-    const epPct = this._fanSpeedPct("flow_extract", "nom_ext", "eff_ext", "fan_extract_pct");
-    const durOf = (p) => clamp(5 - (clamp(p, 0, 100) / 100) * 4.75, 0.25, 5);
+    const spPct = this._fanAnimPct("flow_supply", "nom_sup", "eff_sup", "fan_supply_pct");
+    const epPct = this._fanAnimPct("flow_extract", "nom_ext", "eff_ext", "fan_extract_pct");
+    // Smooth speed curve via the tunable cubic-bezier ease (default S-curve: slow
+    // ramp at low work, then a rapid speed-up). Maps 0%→6s … 100%→0.1s.
+    const durOf = (p) => FLOW_SPEED_MAX + (FLOW_SPEED_MIN - FLOW_SPEED_MAX) * clamp(this._speedEase(clamp(p, 0, 100) / 100), 0, 1);
     const mix = (wa, wb) => (spPct == null || epPct == null ? (spPct ?? epPct) : wa * spPct + wb * epPct);
     const flowPct = { intake: spPct, extract: epPct, supply: mix(0.75, 0.25), exhaust: mix(0.25, 0.75) };
     e.flows.forEach((f) => {
@@ -1897,6 +1927,8 @@ class ThesslaGreenCardEditor extends HTMLElement {
     if (value.show_metrics === false) out.show_metrics = false;
     if (value.show_schedule === false) out.show_schedule = false;
     if (value.show_calendar === true) out.show_calendar = true;
+    // Advanced (YAML-only) flow-speed curve — preserve it across visual edits.
+    if (Array.isArray(this._config.flow_curve)) out.flow_curve = this._config.flow_curve;
     if (value.accent === "thessla") out.accent = "thessla";
     const allFns = SPECIAL_FUNCTIONS.map((f) => f.option);
     if (Array.isArray(value.functions) && value.functions.length && value.functions.length < allFns.length) {

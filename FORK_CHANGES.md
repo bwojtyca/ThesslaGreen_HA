@@ -1,5 +1,12 @@
 # Fork changes — extra Modbus registers
 
+**v0.5.1-rc.6** — smooth (bezier) flow-animation curve (card **3.1.0-rc.6**).
+- Flow-pulse speed now follows a **tunable cubic-bezier** curve (CSS-style) instead of a straight
+  line — smooth, with a steep drop-off below 10 % and a fast top: **0 %→6 s, 10 %→2.7 s, 50 %→0.8 s,
+  75 %→0.4 s, 100 %→0.1 s**. Override with `flow_curve: [x1,y1,x2,y2]` in the card config.
+- Per-fan % now **blends airflow % (flow ÷ nominal) with the fan drive % (DAC signal)**, so a fan
+  maxed out but only moving e.g. 550 m³/h still animates fast instead of looking slow.
+
 **v0.5.1-rc.5** — per-duct flow-animation speed (card **3.1.0-rc.5**).
 - Diagram flow speed is now computed **per fan** from **actual flow ÷ nominal (max)** and scaled
   **linearly: 0 % → 5 s, 100 % → 0.25 s** (was one global speed with a different curve). Uses the
