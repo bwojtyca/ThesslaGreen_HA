@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "3.1.0-rc.3";
+const TG_VERSION = "3.1.0-rc.4";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -539,6 +539,25 @@ class ThesslaGreenCard extends HTMLElement {
     for (let i = 0; i < u.length - 1; i++) segs.push({ t0: u[i], t1: u[i + 1], i: this._baseAt(days, new Date((u[i] + u[i + 1]) / 2)) });
     return segs.filter((s) => s.i != null);
   }
+  // Effective intensity segments = base schedule with airing windows overriding
+  // (airing shows up as a 100% peak in the line, not a separate bar).
+  _effSegments(days, sched, start, end) {
+    const base = this._baseSegments(days, start, end);
+    const airs = this._airingWindows(days, sched, start, end);
+    if (!airs.length) return base;
+    const pts = new Set([start, end]);
+    base.forEach((s) => { pts.add(s.t0); pts.add(s.t1); });
+    airs.forEach((a) => { pts.add(Math.max(start, a.t0)); pts.add(Math.min(end, a.t1)); });
+    const u = [...pts].filter((t) => t >= start && t <= end).sort((a, b) => a - b);
+    const at = (t) => {
+      for (const a of airs) if (t >= a.t0 && t < a.t1) return a.i;
+      for (const s of base) if (t >= s.t0 && t < s.t1) return s.i;
+      return null;
+    };
+    const segs = [];
+    for (let i = 0; i < u.length - 1; i++) { const v = at((u[i] + u[i + 1]) / 2); if (v != null) segs.push({ t0: u[i], t1: u[i + 1], i: v }); }
+    return segs;
+  }
   _airingWindows(days, sched, start, end) {
     const dur = sched.airing_duration || 20, inten = sched.airing_intensity || 100, out = [];
     const day = new Date(start); day.setHours(0, 0, 0, 0);
@@ -585,23 +604,31 @@ class ThesslaGreenCard extends HTMLElement {
     const sched = this._schedule(); if (!sched) return "";
     const days = sched[sched.season] || sched.summer; if (!days) return "";
     const now = new Date(), start = +now - 12 * 3600e3, end = +now + 24 * 3600e3, span = end - start;
-    const segs = this._baseSegments(days, start, end); if (!segs.length) return null;
+    const segs = this._effSegments(days, sched, start, end); if (!segs.length) return null;
     this._miniWin = { start, end };
-    const airs = this._airingWindows(days, sched, start, end);
     // Plot fills a slider-like box (the box rounds/clips + supplies the background);
     // the day/hour labels + "now" dot sit in a separate axis row below the box.
-    const W = 360, PH = 24, yTop = 1.5, yBot = 22.5;   // plot viewBox (stretched to box height)
+    // 100% sits at the very top so an airing spike reaches the box edge.
+    const W = 360, PH = 24, yTop = 1, yBot = PH;
     const xt = (t) => ((t - start) / span) * W;
     const yv = (v) => yBot - (clamp(v, 0, 100) / 100) * (yBot - yTop);
+    // Night: one continuous band per night (merged across midnight) = complement of
+    // the day intervals; the edges that hit the window boundary are pushed off-canvas
+    // (blur hidden by the box) so ONLY real sunrise/sunset feather.
     const sun = this._sunTimes();
     let night = "";
     if (sun) {
-      const day = new Date(start); day.setHours(0, 0, 0, 0);
-      for (; +day <= end; day.setDate(day.getDate() + 1)) {
-        for (const [a, b] of [[0, sun.rise], [sun.set, 24]]) {
-          const t0 = Math.max(start, +day + a * 3600e3), t1 = Math.min(end, +day + b * 3600e3);
-          if (t1 > t0) night += `<rect class="sch-night" x="${xt(t0).toFixed(1)}" y="0" width="${(xt(t1) - xt(t0)).toFixed(1)}" height="${PH}"/>`;
-        }
+      const dayIvs = [];
+      const d0 = new Date(start); d0.setHours(0, 0, 0, 0);
+      for (; +d0 <= end + 24 * 3600e3; d0.setDate(d0.getDate() + 1)) dayIvs.push([+d0 + sun.rise * 3600e3, +d0 + sun.set * 3600e3]);
+      const nights = []; let cur = -Infinity;
+      for (const [ds, de] of dayIvs) { nights.push([cur, ds]); cur = de; }
+      nights.push([cur, Infinity]);
+      for (const [ns, ne] of nights) {
+        if (ne <= start || ns >= end) continue;
+        const xA = ns <= start ? -20 : xt(ns);
+        const xB = ne >= end ? W + 20 : xt(ne);
+        night += `<rect class="sch-night" x="${xA.toFixed(1)}" y="0" width="${(xB - xA).toFixed(1)}" height="${PH}"/>`;
       }
     }
     let line = "";
@@ -609,7 +636,6 @@ class ThesslaGreenCard extends HTMLElement {
     const area = `M${xt(segs[0].t0).toFixed(1)},${PH}` +
       segs.map((s) => { const y = yv(s.i).toFixed(1); return `L${xt(s.t0).toFixed(1)},${y}L${xt(s.t1).toFixed(1)},${y}`; }).join("") +
       `L${xt(segs[segs.length - 1].t1).toFixed(1)},${PH}Z`;
-    const air = airs.map((a) => `<rect class="sch-air" x="${xt(a.t0).toFixed(1)}" y="${yv(a.i).toFixed(1)}" width="${Math.max(1.5, xt(a.t1) - xt(a.t0)).toFixed(1)}" height="${(yBot - yv(a.i)).toFixed(1)}"/>`).join("");
     let grid = "", labels = "";
     const dfmt = new Intl.DateTimeFormat((this._hass.locale && this._hass.locale.language) || "en", { day: "2-digit", month: "2-digit" });
     const th = new Date(start); th.setMinutes(0, 0, 0);
@@ -623,7 +649,7 @@ class ThesslaGreenCard extends HTMLElement {
     const plot = `<svg viewBox="0 0 ${W} ${PH}" class="sch-svg" preserveAspectRatio="none" role="img" aria-label="${this._t("schedule_title")}">
         <defs><filter id="schnight" x="-20%" y="-30%" width="140%" height="160%"><feGaussianBlur stdDeviation="3 0"/></filter></defs>
         <g filter="url(#schnight)">${night}</g>${grid}
-        <path class="sch-area" d="${area}"/><path class="sch-line" d="${line}"/>${air}
+        <path class="sch-area" d="${area}"/><path class="sch-line" d="${line}"/>
         <line class="sch-now" x1="${xn}" y1="0" x2="${xn}" y2="${PH}"/>
       </svg>`;
     const axis = `<svg viewBox="0 0 ${W} 12" class="sch-axis-svg">
@@ -646,8 +672,12 @@ class ThesslaGreenCard extends HTMLElement {
     order.forEach((di, row) => {
       const y = top + row * rowH, iTop = y + 1, iBot = y + rowH - 1, ih = iBot - iTop;
       yl += `<text class="cal-d" x="2" y="${(y + rowH / 2 + 3).toFixed(1)}">${names[di]}</text>`;
-      if (sun) for (const [a, b] of [[0, sun.rise], [sun.set, 24]]) {
-        if (b > a) night += `<rect class="cal-night" x="${xcol(a).toFixed(1)}" y="${iTop}" width="${((b - a) * cw).toFixed(1)}" height="${ih}"/>`;
+      // Night: early-morning [0,sunrise] and evening [sunset,24]. Push the edge at
+      // the grid boundary (0 / 24) off the grid so only sunrise/sunset feather
+      // (the calclip clips the pushed edges).
+      if (sun) {
+        if (sun.rise > 0) night += `<rect class="cal-night" x="${(gx - 12).toFixed(1)}" y="${iTop}" width="${(xcol(sun.rise) - (gx - 12)).toFixed(1)}" height="${ih}"/>`;
+        if (sun.set < 24) night += `<rect class="cal-night" x="${xcol(sun.set).toFixed(1)}" y="${iTop}" width="${(xcol(24) + 12 - xcol(sun.set)).toFixed(1)}" height="${ih}"/>`;
       }
       for (let h = 0; h < 24; h++) {
         const iv = this._baseAt(days, this._dateForDayHour(di, h)); if (iv == null) continue;
@@ -658,8 +688,11 @@ class ThesslaGreenCard extends HTMLElement {
       if (a) { const [hh, mm] = a.split(":").map(Number); const x = xcol(hh + mm / 60); const w = Math.max(1.5, ((sched.airing_duration || 20) / 60) * cw); air += `<rect class="cal-air" x="${x.toFixed(1)}" y="${iTop}" width="${w.toFixed(1)}" height="${ih}"><title>${this._t("fn_airing")} ${a}</title></rect>`; }
     });
     return `<svg viewBox="0 0 ${W} ${H}" class="cal-svg" role="img" aria-label="${this._t("schedule_title")}">
-      <defs><filter id="calnight" x="-10%" y="-5%" width="120%" height="110%"><feGaussianBlur stdDeviation="2 0"/></filter></defs>
-      <g filter="url(#calnight)">${night}</g>${xl}${yl}${bars}${air}</svg>`;
+      <defs>
+        <filter id="calnight" x="-10%" y="-5%" width="120%" height="110%"><feGaussianBlur stdDeviation="2 0"/></filter>
+        <clipPath id="calclip"><rect x="${gx}" y="${top}" width="${(xcol(24) - gx).toFixed(1)}" height="${7 * rowH}"/></clipPath>
+      </defs>
+      <g clip-path="url(#calclip)"><g filter="url(#calnight)">${night}</g></g>${xl}${yl}${bars}${air}</svg>`;
   }
 
   // ---- Render --------------------------------------------------------------
@@ -1612,7 +1645,7 @@ class ThesslaGreenCard extends HTMLElement {
       .sch-now { stroke:var(--primary-text-color); stroke-width:1; stroke-dasharray:2 2; opacity:.65; vector-effect:non-scaling-stroke; }
       .sch-now-d { fill:var(--primary-text-color); }
       .cal-bar { fill:var(--tg-accent); }
-      .cal-air { fill:var(--tg-accent-d); opacity:.95; }
+      .cal-air { fill:var(--tg-accent); }              /* airing = a 100% column, same palette */
       .sch-tip { position:absolute; bottom:100%; transform:translateX(-50%); margin-bottom:2px;
                  pointer-events:none; display:none; white-space:nowrap; z-index:3;
                  background:var(--secondary-background-color); color:var(--primary-text-color);

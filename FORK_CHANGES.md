@@ -1,5 +1,13 @@
 # Fork changes — extra Modbus registers
 
+**v0.5.1-rc.4** — schedule chart fixes (card **3.1.0-rc.4**).
+- **Airing integrated into the line**: it's now shown as a 100 % **peak of the intensity line** (with
+  the same filled area) instead of a separate bar — and 100 % now reaches the top of the box. Calendar
+  airing likewise drawn as a full-height column in the base accent colour.
+- **Night feathering fixed**: the night band is merged across midnight (one continuous night) and the
+  edges that meet the chart boundary are pushed off-canvas, so only the real **sunrise/sunset** edges
+  blur — no more lighter bleed at the chart start/end. Same fix on the calendar (clipped to the grid).
+
 **v0.5.1-rc.3** — schedule mini-chart in a slider-style box (card **3.1.0-rc.3**).
 - The mini chart's plot now sits in a **box matching the intensity slider** (same background, border,
   rounded corners and 34 px height) for visual consistency; the day/hour labels + "now" dot moved to an
