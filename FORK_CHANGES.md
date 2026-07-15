@@ -1,5 +1,27 @@
 # Fork changes — extra Modbus registers
 
+## v0.5.0 (stable) — card 3.0.0
+
+First stable release of the 0.5.0 line (rc.1–rc.19 below). Highlights:
+- **Rebuilt Lovelace card**: manufacturer-style airflow diagram (rotated exchanger, kinked ducts,
+  filters/FPX/fans, counter-flow core, bypass ribbon, ambient probe, heater coil), unified mode
+  selector with a real drag slider (debounced writes), a dedicated **bypass section**, and a light
+  **statistics** strip (efficiency / recovery / COP / filters — each individually toggleable).
+- **Much more Modbus data as entities**: effective/true ventilation % (272/273), CF flow + status,
+  bypass configuration, special-function configs, curated + full fault codes, firmware / serial,
+  filter wear % and days, speed presets, physical **discrete inputs** (filter presostats enabled;
+  the rest disabled-by-default).
+- **Correctness**: mode never falls to "unknown" (full specialMode map); Auto stays Auto while a
+  scheduled function runs; bypass "why closed" only shown when derivable; true ventilation % shown
+  instead of the DAC control signal.
+- **Robustness / perf**: Reconfigure flow, options-flow 500 fixed, Modbus reads consolidated
+  (~41→24 round-trips) with live-validated static blocks, `retries` lowered, and optimistic write
+  push for an instant UI.
+
+Everything was confirmed live against a real AirPack 800v.
+
+---
+
 **v0.5.0-rc.19** — full register audit: real ventilation %, CF, physical inputs (card **3.0.0-rc.16**).
 Audited every documented register live on the 800v (`tools/audit_registers.py`) — several useful ones
 were being missed because we probed them in the wrong Modbus space.
