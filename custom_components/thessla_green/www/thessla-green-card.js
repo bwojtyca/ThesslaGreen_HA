@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "3.1.0-rc.4";
+const TG_VERSION = "3.1.0-rc.5";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -53,6 +53,8 @@ const DEFAULT_ENTITIES = {
   fan_extract_pct: `sensor.${DEV}rekuperator_wydajnosc_wywiew`, // dac 1281 → control-signal % (fallback)
   eff_sup: `sensor.${DEV}rekuperator_wydajnosc_rzeczywista_nawiew`, // 272 → true ventilation %
   eff_ext: `sensor.${DEV}rekuperator_wydajnosc_rzeczywista_wywiew`, // 273 → true ventilation %
+  nom_sup: `sensor.${DEV}rekuperator_strumien_nominalny_nawiew`, // 4354 → max supply flow (m³/h)
+  nom_ext: `sensor.${DEV}rekuperator_strumien_nominalny_wywiew`, // 4355 → max exhaust flow (m³/h)
   bypass_status: `sensor.${DEV}rekuperator_status_bypass`, // 4330: true bypass status
   alarm_code: `sensor.${DEV}rekuperator_kod_alarmu`, // 4384: blocking S-alarm number
   filter_days: `sensor.${DEV}rekuperator_filtr_nawiew_dni`, // 4660: days to filter change
@@ -104,6 +106,8 @@ const ENTITY_RULES = {
   fan_extract_pct: { domain: "sensor", suffix: "wydajnosc_wywiew" },
   eff_sup: { domain: "sensor", suffix: "wydajnosc_rzeczywista_nawiew" },
   eff_ext: { domain: "sensor", suffix: "wydajnosc_rzeczywista_wywiew" },
+  nom_sup: { domain: "sensor", suffix: "strumien_nominalny_nawiew" },
+  nom_ext: { domain: "sensor", suffix: "strumien_nominalny_wywiew" },
   bypass_status: { domain: "sensor", suffix: "status_bypass" },
   alarm_code: { domain: "sensor", suffix: "kod_alarmu" },
   filter_days: { domain: "sensor", suffix: "filtr_nawiew_dni" },
@@ -338,6 +342,14 @@ class ThesslaGreenCard extends HTMLElement {
     if (s === null && e === null) return null;
     if (s !== null && e !== null) return Math.round((s + e) / 2);
     return Math.round(s ?? e);
+  }
+  // Per-fan speed % = actual flow ÷ nominal (max). Uses the measured flow / nominal
+  // reference; falls back to the device's true % (272/273), then the DAC signal.
+  _fanSpeedPct(flowRole, nomRole, effRole, dacRole) {
+    const f = this._num(this._entities[flowRole]), n = this._num(this._entities[nomRole]);
+    if (f !== null && n) return clamp((f / n) * 100, 0, 100);
+    const e = this._num(this._entities[effRole]); if (e !== null) return clamp(e, 0, 100);
+    const d = this._num(this._entities[dacRole]); return d !== null ? clamp(d, 0, 100) : null;
   }
   // Config summary shown under each mode tile (intensity %, + duration for timed
   // modes; the manual/temporary setpoints stay visible on any mode).
@@ -955,10 +967,10 @@ class ThesslaGreenCard extends HTMLElement {
     ], 3, true);
     // Ducts: horizontal run + a rounded kink into the exchanger's slanted face.
     const DUCTS = [
-      [F.intake, [[6, 70], [192, 70], [204, 91]]],
-      [F.extract, [[474, 70], [288, 70], [276, 91]]],
-      [F.exhaust, [[204, 133], [192, 154], [6, 154]]],
-      [F.supply, [[276, 133], [288, 154], [474, 154]]],
+      [F.intake, [[6, 70], [192, 70], [204, 91]], "intake"],
+      [F.extract, [[474, 70], [288, 70], [276, 91]], "extract"],
+      [F.exhaust, [[204, 133], [192, 154], [6, 154]], "exhaust"],
+      [F.supply, [[276, 133], [288, 154], [474, 154]], "supply"],
     ];
     const ductD = (p) => roundPath(p.map(([x, y]) => ({ x, y })), 5, false);
     // Flat spiral ("ślimak") heating-coil icon, like the product's element.
@@ -989,7 +1001,7 @@ class ThesslaGreenCard extends HTMLElement {
           ${DUCTS.map((d) => `<path class="track" d="${ductD(d[1])}" style="stroke:${d[0]}"/>`).join("\n          ")}
 
           <!-- Animated flow pulses (point order = airflow direction) -->
-          ${DUCTS.map((d) => `<path class="flow" d="${ductD(d[1])}" style="stroke:${d[0]}"/>`).join("\n          ")}
+          ${DUCTS.map((d) => `<path class="flow" data-flow="${d[2]}" d="${ductD(d[1])}" style="stroke:${d[0]}"/>`).join("\n          ")}
 
           <!-- Two arrows per duct: one mid-slant by the exchanger, one at the duct end -->
           ${arrow(198, 80.5, 60, F.intake)}   ${arrow(12, 70, 0, F.intake)}
@@ -1331,15 +1343,20 @@ class ThesslaGreenCard extends HTMLElement {
     e.status.textContent = status;
     e.status.hidden = !status;
 
-    // Airflow animation: prefer the effective fan % (fork), else real m³/h.
-    const running = powerOn && (effPct ?? airflow ?? 0) > 0;
-    const dur =
-      effPct !== null
-        ? clamp(2.6 - effPct / 45, 0.5, 2.6)
-        : clamp(2.6 - (airflow ?? 0) / 150, 0.5, 2.6);
+    // Airflow animation — per-duct speed from each fan's flow ÷ nominal (%),
+    // scaled linearly: 0% → 5s (slow crawl), 100% → 0.25s. Intake follows the
+    // supply fan, extract the exhaust fan; supply/exhaust ducts blend both
+    // (75/25 and 25/75) since after the exchanger the streams mix.
+    const spPct = this._fanSpeedPct("flow_supply", "nom_sup", "eff_sup", "fan_supply_pct");
+    const epPct = this._fanSpeedPct("flow_extract", "nom_ext", "eff_ext", "fan_extract_pct");
+    const durOf = (p) => clamp(5 - (clamp(p, 0, 100) / 100) * 4.75, 0.25, 5);
+    const mix = (wa, wb) => (spPct == null || epPct == null ? (spPct ?? epPct) : wa * spPct + wb * epPct);
+    const flowPct = { intake: spPct, extract: epPct, supply: mix(0.75, 0.25), exhaust: mix(0.25, 0.75) };
     e.flows.forEach((f) => {
-      f.style.animationDuration = `${dur}s`;
-      f.style.animationPlayState = running ? "running" : "paused";
+      const p = flowPct[f.dataset.flow];
+      const on = powerOn && p != null;
+      f.style.animationDuration = `${durOf(p ?? 0).toFixed(2)}s`;
+      f.style.animationPlayState = on ? "running" : "paused";
     });
 
     // Diagram values.

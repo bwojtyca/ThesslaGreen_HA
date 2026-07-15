@@ -1,5 +1,12 @@
 # Fork changes — extra Modbus registers
 
+**v0.5.1-rc.5** — per-duct flow-animation speed (card **3.1.0-rc.5**).
+- Diagram flow speed is now computed **per fan** from **actual flow ÷ nominal (max)** and scaled
+  **linearly: 0 % → 5 s, 100 % → 0.25 s** (was one global speed with a different curve). Uses the
+  measured flow / nominal reference (falls back to the true % 272/273, then DAC).
+- **Per-duct**: intake follows the supply fan, extract the exhaust fan; **supply = 75 % supply +
+  25 % exhaust**, **exhaust = 25 % supply + 75 % exhaust** (the streams mix after the exchanger).
+
 **v0.5.1-rc.4** — schedule chart fixes (card **3.1.0-rc.4**).
 - **Airing integrated into the line**: it's now shown as a 100 % **peak of the intensity line** (with
   the same filled area) instead of a separate bar — and 100 % now reaches the top of the box. Calendar
