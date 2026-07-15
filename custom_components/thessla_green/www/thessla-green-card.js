@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "3.1.0-rc.1";
+const TG_VERSION = "3.1.0-rc.2";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -556,61 +556,102 @@ class ThesslaGreenCard extends HTMLElement {
     const now = new Date(), cur = (now.getDay() + 6) % 7, d = new Date(now);
     d.setDate(now.getDate() + (di - cur)); d.setHours(h, 30, 0, 0); return d;
   }
+  // Sunrise/sunset hours-of-day (local, fractional) from the sun.sun entity — used
+  // to shade night. null when unavailable.
+  _sunTimes() {
+    const s = this._hass && this._hass.states && this._hass.states["sun.sun"];
+    if (!s || !s.attributes) return null;
+    const hh = (iso) => { const d = new Date(iso); return isNaN(+d) ? null : d.getHours() + d.getMinutes() / 60; };
+    const rise = hh(s.attributes.next_rising), set = hh(s.attributes.next_setting);
+    return rise == null || set == null ? null : { rise, set };
+  }
+  // Intensity (base, or airing if a window covers t) at timestamp t — for the tooltip.
+  _miniValueAt(t) {
+    const sched = this._schedule(); if (!sched) return null;
+    const days = sched[sched.season] || sched.summer;
+    const day = days[(new Date(t).getDay() + 6) % 7];
+    if (day.airing) {
+      const [hh, mm] = day.airing.split(":").map(Number);
+      const a0 = new Date(t); a0.setHours(hh, mm, 0, 0);
+      if (t >= +a0 && t < +a0 + (sched.airing_duration || 20) * 60000)
+        return { i: sched.airing_intensity || 100, air: true };
+    }
+    return { i: this._baseAt(days, new Date(t)), air: false };
+  }
 
-  // Mini chart: base intensity over now-12h .. now+24h with airing + "now" marker.
+  // Mini chart: base intensity over now-12h .. now+24h — filled area + step line,
+  // night shading, airing spikes (accent), date at midnight, "now" marker.
   _renderScheduleMini() {
     const sched = this._schedule(); if (!sched) return "";
     const days = sched[sched.season] || sched.summer; if (!days) return "";
-    const now = new Date(), start = +now - 12 * 3600e3, end = +now + 24 * 3600e3;
+    const now = new Date(), start = +now - 12 * 3600e3, end = +now + 24 * 3600e3, span = end - start;
     const segs = this._baseSegments(days, start, end); if (!segs.length) return "";
+    this._miniWin = { start, end };
     const airs = this._airingWindows(days, sched, start, end);
-    const W = 360, H = 92, padL = 6, padR = 6, yTop = 10, yBot = 76;
-    const x0 = padL, x1 = W - padR;
-    const xt = (t) => x0 + ((t - start) / (end - start)) * (x1 - x0);
+    const W = 360, H = 34, x0 = 2, x1 = 358, yTop = 3, yBot = 24;
+    const xt = (t) => x0 + ((t - start) / span) * (x1 - x0);
     const yv = (v) => yBot - (clamp(v, 0, 100) / 100) * (yBot - yTop);
-    let d = "";
-    segs.forEach((s, i) => { const y = yv(s.i).toFixed(1); d += `${i ? "L" : "M"}${xt(s.t0).toFixed(1)},${y}L${xt(s.t1).toFixed(1)},${y}`; });
-    const air = airs.map((a) => { const xa = xt(a.t0), xb = xt(a.t1); return `<rect class="sch-air" x="${xa.toFixed(1)}" y="${yv(a.i).toFixed(1)}" width="${Math.max(2, xb - xa).toFixed(1)}" height="${(yBot - yv(a.i)).toFixed(1)}"><title>${this._t("fn_airing")}</title></rect>`; }).join("");
+    // night bands
+    const sun = this._sunTimes();
+    let night = "";
+    if (sun) {
+      const day = new Date(start); day.setHours(0, 0, 0, 0);
+      for (; +day <= end; day.setDate(day.getDate() + 1)) {
+        for (const [a, b] of [[0, sun.rise], [sun.set, 24]]) {
+          const t0 = Math.max(start, +day + a * 3600e3), t1 = Math.min(end, +day + b * 3600e3);
+          if (t1 > t0) night += `<rect class="sch-night" x="${xt(t0).toFixed(1)}" y="0" width="${(xt(t1) - xt(t0)).toFixed(1)}" height="${yBot}"/>`;
+        }
+      }
+    }
+    let line = "";
+    segs.forEach((s, i) => { const y = yv(s.i).toFixed(1); line += `${i ? "L" : "M"}${xt(s.t0).toFixed(1)},${y}L${xt(s.t1).toFixed(1)},${y}`; });
+    const area = `M${xt(segs[0].t0).toFixed(1)},${yBot}` +
+      segs.map((s) => { const y = yv(s.i).toFixed(1); return `L${xt(s.t0).toFixed(1)},${y}L${xt(s.t1).toFixed(1)},${y}`; }).join("") +
+      `L${xt(segs[segs.length - 1].t1).toFixed(1)},${yBot}Z`;
+    const air = airs.map((a) => { const xa = xt(a.t0), xb = xt(a.t1); return `<rect class="sch-air" x="${xa.toFixed(1)}" y="${yv(a.i).toFixed(1)}" width="${Math.max(1.5, xb - xa).toFixed(1)}" height="${(yBot - yv(a.i)).toFixed(1)}"/>`; }).join("");
     let ticks = "";
+    const dfmt = new Intl.DateTimeFormat((this._hass.locale && this._hass.locale.language) || "en", { day: "2-digit", month: "2-digit" });
     const th = new Date(start); th.setMinutes(0, 0, 0);
     for (; +th <= end; th.setHours(th.getHours() + 1)) {
-      if (th.getHours() % 6 || +th < start) continue;
+      const h = th.getHours(); if (+th < start) continue;
       const x = xt(+th).toFixed(1);
-      ticks += `<line class="sch-grid" x1="${x}" y1="${yTop}" x2="${x}" y2="${yBot}"/><text class="sch-tick" x="${x}" y="${H - 3}" text-anchor="middle">${this._fmtHour(th.getHours())}</text>`;
+      if (h === 0) ticks += `<line class="sch-mid" x1="${x}" y1="0" x2="${x}" y2="${yBot}"/><text class="sch-tick sch-date" x="${x}" y="${H - 1}" text-anchor="middle">${dfmt.format(th)}</text>`;
+      else if (h % 6 === 0) ticks += `<line class="sch-grid" x1="${x}" y1="${yTop}" x2="${x}" y2="${yBot}"/><text class="sch-tick" x="${x}" y="${H - 1}" text-anchor="middle">${this._fmtHour(h)}</text>`;
     }
-    const xn = xt(+now).toFixed(1), nowI = this._baseAt(days, now);
-    return `<div class="sch-head"><span>${this._t("schedule_title")}</span><span class="sch-now-v">${nowI == null ? "" : `${this._t("now")} ${nowI}%`}</span></div>
-      <svg viewBox="0 0 ${W} ${H}" class="sch-svg" role="img" aria-label="${this._t("schedule_title")}">
-        ${ticks}<line class="sch-grid" x1="${x0}" y1="${yv(50).toFixed(1)}" x2="${x1}" y2="${yv(50).toFixed(1)}"/>
-        ${air}<path class="sch-line" d="${d}"/>
-        <line class="sch-now" x1="${xn}" y1="${yTop - 3}" x2="${xn}" y2="${yBot}"/><circle class="sch-now-d" cx="${xn}" cy="${yTop - 3}" r="2.4"/>
+    const xn = xt(+now).toFixed(1);
+    return `<svg viewBox="0 0 ${W} ${H}" class="sch-svg" role="img" aria-label="${this._t("schedule_title")}">
+        ${night}${ticks}
+        <path class="sch-area" d="${area}"/><path class="sch-line" d="${line}"/>${air}
+        <line class="sch-now" x1="${xn}" y1="0" x2="${xn}" y2="${yBot}"/><circle class="sch-now-d" cx="${xn}" cy="1.5" r="2"/>
       </svg>`;
   }
 
   // Weekly calendar: rows = days (locale first-weekday order), cols = 00–24h.
+  // Intensity as bar HEIGHT; night shaded; airing marked in the accent colour.
   _renderCalendar() {
     const sched = this._schedule(); if (!sched) return "";
     const days = sched[sched.season] || sched.summer; if (!days) return "";
-    const names = this._dayNames(), order = this._weekOrder();
-    const W = 360, labelW = 30, top = 12, rowH = 15, H = top + 7 * rowH + 2;
+    const names = this._dayNames(), order = this._weekOrder(), sun = this._sunTimes();
+    const W = 360, labelW = 30, top = 12, rowH = 16, H = top + 7 * rowH + 2;
     const gx = labelW, gw = W - labelW - 4, cw = gw / 24;
     const xcol = (h) => gx + h * cw;
-    let xl = "", yl = "", cells = "", air = "";
+    let xl = "", yl = "", night = "", bars = "", air = "";
     for (let h = 0; h <= 24; h += 6) xl += `<text class="cal-h" x="${xcol(h).toFixed(1)}" y="8" text-anchor="middle">${this._fmtHour(h % 24)}</text>`;
     order.forEach((di, row) => {
-      const y = top + row * rowH;
+      const y = top + row * rowH, iTop = y + 1, iBot = y + rowH - 1, ih = iBot - iTop;
       yl += `<text class="cal-d" x="2" y="${(y + rowH / 2 + 3).toFixed(1)}">${names[di]}</text>`;
+      if (sun) for (const [a, b] of [[0, sun.rise], [sun.set, 24]]) {
+        if (b > a) night += `<rect class="cal-night" x="${xcol(a).toFixed(1)}" y="${iTop}" width="${((b - a) * cw).toFixed(1)}" height="${ih}"/>`;
+      }
       for (let h = 0; h < 24; h++) {
-        const iv = this._baseAt(days, this._dateForDayHour(di, h));
-        if (iv == null) continue;
-        const op = (0.12 + 0.88 * clamp(iv, 0, 100) / 100).toFixed(2);
-        cells += `<rect class="cal-c" x="${xcol(h).toFixed(1)}" y="${y + 1}" width="${cw.toFixed(2)}" height="${rowH - 2}" style="fill:var(--tg-accent);fill-opacity:${op}"><title>${names[di]} ${this._fmtHour(h)} · ${iv}%</title></rect>`;
+        const iv = this._baseAt(days, this._dateForDayHour(di, h)); if (iv == null) continue;
+        const bh = (clamp(iv, 0, 100) / 100) * ih;
+        bars += `<rect class="cal-bar" x="${(xcol(h) + 0.3).toFixed(1)}" y="${(iBot - bh).toFixed(1)}" width="${(cw - 0.6).toFixed(2)}" height="${bh.toFixed(1)}"><title>${names[di]} ${this._fmtHour(h)} · ${iv}%</title></rect>`;
       }
       const a = days[di].airing;
-      if (a) { const [hh, mm] = a.split(":").map(Number); const x = xcol(hh + mm / 60); const w = Math.max(2, ((sched.airing_duration || 20) / 60) * cw); air += `<rect class="cal-air" x="${x.toFixed(1)}" y="${y + 1}" width="${w.toFixed(1)}" height="${rowH - 2}"><title>${this._t("fn_airing")} ${a}</title></rect>`; }
+      if (a) { const [hh, mm] = a.split(":").map(Number); const x = xcol(hh + mm / 60); const w = Math.max(1.5, ((sched.airing_duration || 20) / 60) * cw); air += `<rect class="cal-air" x="${x.toFixed(1)}" y="${iTop}" width="${w.toFixed(1)}" height="${ih}"><title>${this._t("fn_airing")} ${a}</title></rect>`; }
     });
-    return `<div class="sch-head"><span>${this._t("schedule_title")}</span><span class="sch-now-v">${sched.season === "winter" ? this._t("winter") : this._t("summer")}</span></div>
-      <svg viewBox="0 0 ${W} ${H}" class="cal-svg" role="img" aria-label="${this._t("schedule_title")}">${xl}${yl}${cells}${air}</svg>`;
+    return `<svg viewBox="0 0 ${W} ${H}" class="cal-svg" role="img" aria-label="${this._t("schedule_title")}">${night}${xl}${yl}${bars}${air}</svg>`;
   }
 
   // ---- Render --------------------------------------------------------------
@@ -699,7 +740,10 @@ class ThesslaGreenCard extends HTMLElement {
           </div>
 
           <!-- Mini schedule chart: shown under the tiles when Auto is active -->
-          <div class="sched-mini" data-el="sched-mini" hidden></div>
+          <div class="sched-mini" data-el="sched-mini" hidden>
+            <div class="sch-plot" data-el="sched-plot"></div>
+            <div class="sch-tip" data-el="sched-tip"></div>
+          </div>
 
           <!-- Bypass: its own section — toggle (enable/disable the function) plus
                readable state (open / closed / disabled) and its config. -->
@@ -741,6 +785,8 @@ class ThesslaGreenCard extends HTMLElement {
       speedInput: q("speed-input"),
       speedCap: q("speed-cap"),
       schedMini: q("sched-mini"),
+      schedPlot: q("sched-plot"),
+      schedTip: q("sched-tip"),
       schedCal: q("sched-cal"),
       modes: q("modes"),
       stEff: q("st-eff"),
@@ -1074,6 +1120,25 @@ class ThesslaGreenCard extends HTMLElement {
     this.shadowRoot.querySelectorAll("[data-mref]").forEach((el) => {
       el.onclick = () => this._moreInfo(en()[el.dataset.mref]);
     });
+
+    // Mini-schedule hover tooltip (time · intensity at the cursor).
+    if (this._e.schedMini && this._e.schedTip) {
+      const mini = this._e.schedMini, tip = this._e.schedTip;
+      mini.onpointermove = (ev) => {
+        const win = this._miniWin; if (!win) { tip.style.display = "none"; return; }
+        const r = mini.getBoundingClientRect();
+        const frac = clamp((ev.clientX - r.left) / r.width, 0, 1);
+        const t = win.start + frac * (win.end - win.start);
+        const v = this._miniValueAt(t);
+        if (!v || v.i == null) { tip.style.display = "none"; return; }
+        const tf = new Intl.DateTimeFormat((this._hass.locale && this._hass.locale.language) || "en",
+          { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: this._use12h() });
+        tip.textContent = `${tf.format(new Date(t))} · ${v.i}%${v.air ? " · " + this._t("fn_airing") : ""}`;
+        tip.style.left = `${(ev.clientX - r.left).toFixed(0)}px`;
+        tip.style.display = "block";
+      };
+      mini.onpointerleave = () => { tip.style.display = "none"; };
+    }
   }
 
   _applyPending() {
@@ -1334,9 +1399,9 @@ class ThesslaGreenCard extends HTMLElement {
     }
 
     // Weekly schedule sections (from the Harmonogram sensor attributes).
-    if (e.schedMini) {
+    if (e.schedMini && e.schedPlot) {
       const html = this._config.show_schedule && mode === 0 ? this._renderScheduleMini() : "";
-      e.schedMini.innerHTML = html;
+      e.schedPlot.innerHTML = html;
       e.schedMini.hidden = !html;
     }
     if (e.schedCal) {
@@ -1512,22 +1577,31 @@ class ThesslaGreenCard extends HTMLElement {
       .bypass.on .bypass-ic { color:var(--tg-accent); }
       .bypass.open .bypass-state { color:var(--tg-accent); font-weight:600; }
 
-      /* Weekly schedule — mini chart + calendar */
+      /* Weekly schedule — compact mini chart + calendar */
+      .sched-mini { position:relative; }
       .sched-mini[hidden], .sched-cal[hidden] { display:none; }
-      .sch-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:3px;
-                  font-size:.62rem; font-weight:600; letter-spacing:.5px; text-transform:uppercase;
-                  color:var(--secondary-text-color); }
-      .sch-now-v { text-transform:none; font-variant-numeric:tabular-nums; color:var(--tg-accent-d); }
+      .sch-plot { line-height:0; }
       .sch-svg, .cal-svg { width:100%; height:auto; display:block; }
-      .sch-line { fill:none; stroke:var(--tg-accent); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
-      .sch-air { fill:var(--tg-warn); opacity:.85; }
-      .sch-grid { stroke:var(--divider-color); stroke-width:1; opacity:.5; }
+      .sch-area { fill:var(--tg-accent); opacity:.15; stroke:none; }
+      .sch-line { fill:none; stroke:var(--tg-accent); stroke-width:1.6; stroke-linejoin:round; stroke-linecap:round; }
+      .sch-air { fill:var(--tg-accent-d); opacity:.9; }          /* airing = same palette, at 100% */
+      .sch-grid { stroke:var(--divider-color); stroke-width:.75; opacity:.5; }
+      .sch-mid { stroke:var(--secondary-text-color); stroke-width:.75; opacity:.7; }
+      .sch-night, .cal-night { fill:#25324f; opacity:.42; }       /* darkening night band */
       .sch-tick, .cal-h, .cal-d { fill:var(--secondary-text-color); }
-      .sch-tick, .cal-h { font-size:8px; }
+      .sch-tick { font-size:7px; }
+      .sch-date { font-weight:700; }
+      .cal-h { font-size:8px; }
       .cal-d { font-size:9px; }
-      .sch-now { stroke:var(--primary-text-color); stroke-width:1; stroke-dasharray:2 2; opacity:.55; }
+      .sch-now { stroke:var(--primary-text-color); stroke-width:.9; stroke-dasharray:2 2; opacity:.6; }
       .sch-now-d { fill:var(--primary-text-color); }
-      .cal-air { fill:var(--tg-warn); opacity:.9; }
+      .cal-bar { fill:var(--tg-accent); }
+      .cal-air { fill:var(--tg-accent-d); opacity:.95; }
+      .sch-tip { position:absolute; bottom:100%; transform:translateX(-50%); margin-bottom:2px;
+                 pointer-events:none; display:none; white-space:nowrap; z-index:3;
+                 background:var(--secondary-background-color); color:var(--primary-text-color);
+                 border:1px solid var(--divider-color); border-radius:6px; padding:2px 6px;
+                 font-size:.66rem; font-variant-numeric:tabular-nums; box-shadow:0 2px 6px rgba(0,0,0,.25); }
 
       /* Stats — light, borderless readouts (hairline-separated). Label on top;
          only the value(s) are clickable, not the whole box. */

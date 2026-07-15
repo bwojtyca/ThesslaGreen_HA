@@ -1,5 +1,12 @@
 # Fork changes — extra Modbus registers
 
+**v0.5.1-rc.2** — schedule chart polish (card **3.1.0-rc.2**).
+- **Mini chart**: dropped the headers; ~⅓ the height; **filled area** under the step line; **night
+  shading** (from `sun.sun` sunrise/sunset); **date shown at midnight** on the axis; airing drawn in
+  the accent colour (not orange) as a 100 % spike; **hover tooltip** (time · intensity, marks airing).
+- **Calendar**: intensity now drawn as **bar height** (not opacity); **night shading** per row from the
+  sun entity; airing marked in the same accent style as the mini chart.
+
 **v0.5.1-rc.1** — weekly Auto schedule exposed + card schedule sections (card **3.1.0-rc.1**).
 - Integration reads the **weekly Auto schedule** (regs 16-180: 4 time-slots/day/season with intensity
   + target temp, and a per-day airing start time). Static config, so it's read on a slow cadence and
