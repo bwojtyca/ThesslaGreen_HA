@@ -1,5 +1,19 @@
 # Fork changes — extra Modbus registers
 
+## v0.5.1 (stable) — card 3.1.0
+
+Stable release of the 0.5.1 line (rc.1–rc.7 below). Adds the **weekly Auto schedule** and reworks the
+diagram **flow animation**:
+- Integration reads the weekly Auto schedule (regs 16-180, cached on a slow cadence) and exposes it as
+  a **"Harmonogram"** sensor (parsed attributes: both seasons × 7 days + airing).
+- Card gains two optional, locale-aware **schedule sections**: a **mini chart** under the tiles when
+  Auto is active (12 h back / 24 h ahead, night shading from `sun.sun`, airing peak, "now" marker,
+  hover tooltip) and a weekly **calendar** heat-grid. Toggle via `show_schedule` / `show_calendar`.
+- Flow-pulse **animation** is now **per-duct**, driven by each fan's flow ÷ nominal blended with the
+  fan drive %, along a **tunable cubic-bezier** speed curve (`flow_curve: [x1,y1,x2,y2]`).
+
+---
+
 **v0.5.1-rc.7** — animation blend fix + mini-chart gating (card **3.1.0-rc.7**).
 - Flow-animation % now uses the **stable true % (272/273)** for the airflow part (blended with the fan
   drive %), instead of the instantaneous flow (256/257) that briefly reads 0 on spin-up — so a fan at
