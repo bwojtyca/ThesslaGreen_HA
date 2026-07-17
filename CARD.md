@@ -2,7 +2,7 @@
 
 This fork ships a custom Lovelace card (`custom:thessla-green-card`) that reproduces the
 Air++ / AirS control screen: airflow diagram, unified mode selector, season, bypass,
-efficiency / recovery / COP, filter + fault status.
+efficiency / thermal balance / benefit index, filter + fault status.
 
 The card file lives in `custom_components/thessla_green/www/thessla-green-card.js` and is
 **auto-registered** by the integration (served at `/thessla_green/thessla-green-card.js` and
@@ -23,7 +23,7 @@ type: custom:thessla-green-card
 name: Rekuperator          # header title (default: localized)
 speed_step: 5              # −/+ intensity step (%)
 show_diagram: true         # airflow schematic
-show_metrics: true         # efficiency / recovery / COP
+show_metrics: true         # efficiency / thermal balance / benefit index
 accent: theme              # "theme" (HA --primary-color, default) or "thessla"
 functions:                 # which special functions to show (default: all)
   - Wietrzenie

@@ -126,7 +126,7 @@ async def async_setup_entry(
     # Metryki obliczane
     power_entity = entry.options.get("sensor_power")  # W lub kW
     if not power_entity:
-        _LOGGER.warning("Nie skonfigurowano 'sensor_power' w opcjach integracji – COP będzie 'unavailable'.")
+        _LOGGER.warning("Nie skonfigurowano 'sensor_power' w opcjach integracji – Wskaźnik korzyści termicznej będzie 'unavailable'.")
 
     entities.extend([
         RekuEfficiencySensor(coordinator=coordinator, slave=slave),
@@ -295,6 +295,47 @@ class _BaseComputedSensor(SensorEntity):
             raw -= 0x10000
         return float(raw) * scale
 
+    # --- Cel termiczny + bilans korzyści (wspólne dla bilansu i wskaźnika) ---
+    def _read_goal(self) -> str | None:
+        """Aktualny cel termiczny wg ustawienia sezonu (holding 4209).
+        Zima → 'grzanie' (chcemy cieplejszy nawiew), Lato → 'chlodzenie'
+        (chcemy chłodniejszy nawiew). None, gdy rejestr niedostępny."""
+        season = self.coordinator.safe_data.holding.get(4209)
+        if season == 1:
+            return "grzanie"
+        if season == 0:
+            return "chlodzenie"
+        return None
+
+    def _beneficial_power_kw(self):
+        """Zwraca (moc_korzystna_kW, cel, dT_wymiennik). Moc jest ZE ZNAKIEM
+        względem celu: dodatnia = wymiennik wspiera cel, ujemna = działa przeciw
+        celowi (np. zamknięty bypass w chłodną letnią noc). (None, cel, None)
+        przy braku danych / zerowym przepływie / nieznanym sezonie."""
+        To = self._read_temp_czerpnia()   # czerpnia — powietrze zewnętrzne
+        Ts = self._read_temp_nawiew()     # nawiew — powietrze do domu
+        flow = self._read_flow_nawiew()   # m3/h
+        goal = self._read_goal()
+        if None in (To, Ts) or flow is None or flow <= 0 or goal is None:
+            return None, goal, None
+        dt_reku = Ts - To                 # wpływ wymiennika na nawiew
+        dt_benefit = dt_reku if goal == "grzanie" else -dt_reku
+        p_kw = 0.000335 * flow * dt_benefit
+        return round(p_kw, 3), goal, round(dt_reku, 1)
+
+    @staticmethod
+    def _benefit_status(p_kw, goal):
+        """Status słowny na podstawie mocy korzystnej i celu."""
+        if p_kw is None or goal is None:
+            return None, None
+        if abs(p_kw) < 0.05:              # martwa strefa ~50 W → praktycznie brak wpływu
+            return "neutralna", "Neutralna — wymiennik prawie nie wpływa na cel"
+        if p_kw > 0:
+            cel = "grzanie" if goal == "grzanie" else "chłodzenie"
+            return "korzystna", f"Korzystna — wspiera {cel}"
+        kier = "chłodzi" if goal == "grzanie" else "grzeje"
+        return "niekorzystna", f"Niekorzystna — wymiennik {kier} nawiew, sprawdź bypass"
+
     def _recalc(self):
         raise NotImplementedError
 
@@ -323,41 +364,65 @@ class RekuEfficiencySensor(_BaseComputedSensor):
 
 
 class RekuRecoveryPowerSensor(_BaseComputedSensor):
-    """Moc odzysku [kW] ≈ 0.000335 * V[m3/h] * ΔT[°C]"""
+    """Bilans termiczny rekuperacji [kW] ≈ 0.000335 * V[m3/h] * ΔT_korzyść[°C].
+    Moc odzysku ZE ZNAKIEM względem celu (grzanie/chłodzenie): dodatnia =
+    wymiennik wspiera cel, ujemna = działa przeciw celowi (np. zamknięty
+    bypass w chłodną letnią noc)."""
     def __init__(self, coordinator: ThesslaGreenCoordinator, slave: int):
         super().__init__(coordinator, slave)
-        self._attr_name = "Rekuperator Moc Odzysku"
+        self._attr_name = "Rekuperator Bilans Termiczny"
         self._attr_unique_id = f"thessla_recovery_power_{slave}"
-        self._attr_icon = "mdi:fire"
+        self._attr_icon = "mdi:scale-balance"
         self._attr_native_unit_of_measurement = "kW"
-
-    def _recalc(self):
-        To = self._read_temp_czerpnia()
-        Ts = self._read_temp_nawiew()
-        flow = self._read_flow_nawiew()  # m3/h
-        if None in (To, Ts) or flow is None or flow <= 0:
-            self._attr_native_value = None
-            return
-        q_kw = 0.000335 * flow * (Ts - To)
-        self._attr_native_value = round(q_kw, 3)
-
-
-class RekuCOPSensor(_BaseComputedSensor):
-    """COP = (moc odzysku [kW]) / (pobór elektryczny [kW]) – bez jednostki"""
-
-    def __init__(self, coordinator: ThesslaGreenCoordinator, slave: int, power_entity: str | None):
-        super().__init__(coordinator, slave)
-        self._attr_name = "Rekuperator COP"
-        self._attr_unique_id = f"thessla_cop_{slave}"
-        self._attr_icon = "mdi:chart-line"
-        self._attr_native_unit_of_measurement = "x"
-        self._power_entity = power_entity
-        self._last_power_val = None
-        self._last_power_unit = None
+        self._goal = None
+        self._status = None
+        self._status_text = None
+        self._dt_reku = None
 
     @property
     def extra_state_attributes(self):
         return {
+            "cel": self._goal,
+            "status": self._status,
+            "status_opis": self._status_text,
+            "dt_wymiennik": self._dt_reku,
+        }
+
+    def _recalc(self):
+        p_kw, goal, dt = self._beneficial_power_kw()
+        self._goal, self._dt_reku = goal, dt
+        self._status, self._status_text = self._benefit_status(p_kw, goal)
+        self._attr_native_value = p_kw
+
+
+class RekuCOPSensor(_BaseComputedSensor):
+    """Wskaźnik korzyści termicznej = moc korzystna [kW] / pobór wentylatorów [kW].
+    Bezwymiarowy, ZE ZNAKIEM: dodatni = wymiennik wspiera cel, ujemny = działa
+    przeciw celowi (np. lato, bypass nie zadziałał → nawiew cieplejszy od
+    czerpni). Niedostępny tylko przy braku danych / zerowym przepływie /
+    braku poboru mocy — nie chowa się przy pracy „pod prąd"."""
+
+    def __init__(self, coordinator: ThesslaGreenCoordinator, slave: int, power_entity: str | None):
+        super().__init__(coordinator, slave)
+        self._attr_name = "Rekuperator Wskaźnik Korzyści Termicznej"
+        self._attr_unique_id = f"thessla_cop_{slave}"
+        self._attr_icon = "mdi:scale-balance"
+        self._attr_native_unit_of_measurement = None
+        self._power_entity = power_entity
+        self._last_power_val = None
+        self._last_power_unit = None
+        self._goal = None
+        self._status = None
+        self._status_text = None
+        self._beneficial_kw = None
+
+    @property
+    def extra_state_attributes(self):
+        return {
+            "cel": self._goal,
+            "status": self._status,
+            "status_opis": self._status_text,
+            "moc_korzystna_kw": self._beneficial_kw,
             "power_entity": self._power_entity,
             "power_value_raw": self._last_power_val,
             "power_unit": self._last_power_unit,
@@ -414,17 +479,18 @@ class RekuCOPSensor(_BaseComputedSensor):
         return val
 
     def _recalc(self):
-        To = self._read_temp_czerpnia()
-        Ts = self._read_temp_nawiew()
-        flow = self._read_flow_nawiew()
-        p_kw = self._read_power_kw()
+        p_ben, goal, _dt = self._beneficial_power_kw()
+        p_fan = self._read_power_kw()
+        self._goal = goal
+        self._beneficial_kw = p_ben
+        self._status, self._status_text = self._benefit_status(p_ben, goal)
 
-        if None in (To, Ts) or flow is None or flow <= 0 or p_kw is None or p_kw <= 0:
+        if p_ben is None or p_fan is None or p_fan <= 0:
             self._attr_native_value = None
             return
-
-        q_kw = 0.000335 * flow * (Ts - To)
-        self._attr_native_value = round(q_kw / p_kw, 2) if q_kw > 0 else None
+        # ZE ZNAKIEM — ujemny wynik jest sygnałem diagnostycznym (praca „pod prąd"),
+        # więc nie chowamy go do 'unavailable'.
+        self._attr_native_value = round(p_ben / p_fan, 2)
 
 
 # =============================

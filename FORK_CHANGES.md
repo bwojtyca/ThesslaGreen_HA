@@ -1,5 +1,29 @@
 # Fork changes — extra Modbus registers
 
+## v0.5.2-rc.1 — card 3.2.0-rc.1
+
+Reworks the "COP" metric into an honest, **season-aware thermal benefit** and fixes it reading
+`unavailable` in summer.
+
+- **Root cause**: the old COP was `recovery_power / fan_power` and forced to `unavailable` whenever
+  recovered heat wasn't positive. In summer the exchanger *cools* the incoming air (supply < intake),
+  so `ΔT = Ts − To` is negative → the metric vanished even though the unit worked perfectly.
+- **New model — sign follows the thermal goal** (season reg **4209**: Zima→grzanie, Lato→chłodzenie):
+  `ΔT_benefit = (Ts − To)` when heating, `(To − Ts)` when cooling. Positive = the exchanger *helps*
+  the goal; negative = it works *against* it (e.g. bypass didn't open on a cool summer night); ~0 = no
+  effect. This is deliberately **signed** — a negative value is a diagnostic signal, not hidden away.
+- **Renamed** (unique_ids unchanged, so history + existing dashboards survive):
+  - `Rekuperator Moc Odzysku` → **`Rekuperator Bilans Termiczny`** (kW, signed).
+  - `Rekuperator COP` → **`Rekuperator Wskaźnik Korzyści Termicznej`** (dimensionless, signed; unit
+    `x` dropped). It is **no longer forced `unavailable`** when working against the goal — only when
+    data is missing / airflow is 0 / fan power is 0.
+  - Both expose `cel`, `status` (korzystna/neutralna/niekorzystna), `status_opis`, `dt_wymiennik`.
+- **Card 3.2.0-rc.1**: the two tiles now carry a **season-aware label** (`Odzysk ciepła` ↔
+  `Odzysk chłodu`, `Korzyść`), **colour by status** (green helps / red works against / muted neutral),
+  and a **tooltip** with the human explanation. Entity resolution accepts the new and legacy slugs.
+
+---
+
 ## v0.5.1 (stable) — card 3.1.0
 
 Stable release of the 0.5.1 line (rc.1–rc.7 below). Adds the **weekly Auto schedule** and reworks the

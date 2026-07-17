@@ -5,7 +5,7 @@
  * A control panel in the style of the ThesslaGreen Air++ / AirS screen:
  *   - a minimalist heat-exchanger airflow diagram (live temps, m³/h, bypass),
  *   - a single unified mode selector (Auto / Manual / special functions),
- *   - season, bypass, efficiency / recovery power / COP, filter + fault status.
+ *   - season, bypass, efficiency / thermal balance / benefit index, filter + fault status.
  *
  * Single file, no dependencies, no build step. Copy it into /config/www/ and
  * register it as a "JavaScript Module" resource.
@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "3.1.0";
+const TG_VERSION = "3.2.0-rc.1";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -97,8 +97,10 @@ const ENTITY_RULES = {
   flow_supply: { domain: "sensor", suffix: "strumien_nawiew" },
   flow_extract: { domain: "sensor", suffix: "strumien_wywiew" },
   efficiency: { domain: "sensor", suffix: "sprawnosc" },
-  recovery_power: { domain: "sensor", suffix: "moc_odzysku" },
-  cop: { domain: "sensor", suffix: "rekuperator_cop" },
+  // v3.2: renamed to "Bilans termiczny" / "Wskaźnik korzyści termicznej" — match
+  // the new slug first, keep the legacy one so existing installs still resolve.
+  recovery_power: { domain: "sensor", suffix: ["bilans_termiczny", "moc_odzysku"] },
+  cop: { domain: "sensor", suffix: ["wskaznik_korzysci_termicznej", "rekuperator_cop"] },
   filter_change: { domain: "binary_sensor", suffix: "wymiana_filtrow" },
   alarm: { domain: "binary_sensor", suffix: "rekuperator_alarm" },
   error: { domain: "binary_sensor", suffix: "rekuperator_error" },
@@ -181,8 +183,9 @@ const SPECIAL_NONE = "Brak trybu";
 // cell that folds together days-to-change + wear %. All open more-info on tap.
 const STATS = [
   { key: "efficiency", mref: "efficiency", label: "efficiency" },
+  // recovery + benefit labels are overridden per season at update time.
   { key: "recovery", mref: "recovery_power", label: "recovery" },
-  { key: "cop", mref: "cop", label: "cop" },
+  { key: "cop", mref: "cop", label: "benefit" },
   { key: "filters", mref: "filter_change", label: "filters" },
 ];
 
@@ -221,6 +224,7 @@ const I18N = {
     bypass_hint_open: "Bypass open (active)",
     filters: "Filters", replace: "Replace", ok: "OK",
     efficiency: "Efficiency", recovery: "Recovery", cop: "COP",
+    recovery_heat: "Heat recovery", recovery_cool: "Cool recovery", benefit: "Benefit",
     intake: "INTAKE", extract: "EXTRACT", exhaust: "EXHAUST", supply: "SUPPLY",
     warning: "Warning", error: "Error", schedule: "schedule", active: "active", off: "Off", target: "target",
     cfg_comfort: "comf", cfg_min: "min", cfg_wear: "wear",
@@ -238,6 +242,7 @@ const I18N = {
     bypass_hint_open: "Bypass otwarty (aktywny)",
     filters: "Filtry", replace: "Wymień", ok: "OK",
     efficiency: "Sprawność", recovery: "Odzysk", cop: "COP",
+    recovery_heat: "Odzysk ciepła", recovery_cool: "Odzysk chłodu", benefit: "Korzyść",
     intake: "CZERPNIA", extract: "WYWIEW", exhaust: "WYRZUTNIA", supply: "NAWIEW",
     warning: "Ostrzeżenie", error: "Błąd", schedule: "harmonogram", active: "aktywne", off: "Wyłączony", target: "cel",
     cfg_comfort: "komf", cfg_min: "min", cfg_wear: "zużycie",
@@ -344,6 +349,10 @@ class ThesslaGreenCard extends HTMLElement {
     const v = parseFloat(this._state(id));
     return Number.isFinite(v) ? v : null;
   }
+  _attr(id, name) {
+    const s = this._stateObj(id);
+    return s && s.attributes ? s.attributes[name] : undefined;
+  }
   _isOn(id) {
     return this._state(id) === "on";
   }
@@ -354,6 +363,18 @@ class ThesslaGreenCard extends HTMLElement {
   _flow(id) {
     const v = this._num(id);
     return v === null ? "" : `${Math.round(v)} m³/h`;
+  }
+  // Colour a benefit stat (thermal balance / benefit index) by the sensor's
+  // `status` attribute and expose the human `status_opis` as a tooltip.
+  // beneficial → accent, unfavourable → red, neutral/unknown → muted.
+  _applyBenefit(statEl, valEl, id) {
+    const status = this._attr(id, "status"); // korzystna | neutralna | niekorzystna
+    if (statEl) {
+      statEl.classList.toggle("good", status === "korzystna");
+      statEl.classList.toggle("bad", status === "niekorzystna");
+      statEl.classList.toggle("neutral", status === "neutralna");
+    }
+    if (valEl) valEl.title = this._attr(id, "status_opis") || "";
   }
   // Effective fan output % from the fork's dac sensors (avg of supply+extract).
   // null when the fork entities aren't present → callers fall back.
@@ -786,8 +807,8 @@ class ThesslaGreenCard extends HTMLElement {
                <button class="fv" data-el="st-wear-ext" data-mref="filter_wear_ext">—</button>
              </span>
            </div>`
-        : `<div class="stat">
-             <span class="sl">${t(s.label)}</span>
+        : `<div class="stat" data-el="stat-${s.key}">
+             <span class="sl" data-el="sl-${s.key}">${t(s.label)}</span>
              <button class="sv" data-el="${statIds[s.key]}" data-mref="${s.mref}">—</button>
            </div>`;
     const statsHtml =
@@ -881,6 +902,10 @@ class ThesslaGreenCard extends HTMLElement {
       stEff: q("st-eff"),
       stPow: q("st-pow"),
       stCop: q("st-cop"),
+      slPow: q("sl-recovery"),
+      slCop: q("sl-cop"),
+      statPow: q("stat-recovery"),
+      statCop: q("stat-cop"),
       stFilter: q("st-filter"),
       stWearSup: q("st-wear-sup"),
       stWearExt: q("st-wear-ext"),
@@ -1482,8 +1507,21 @@ class ThesslaGreenCard extends HTMLElement {
 
     // Stats section (borderless; only the cells enabled in config are present).
     if (e.stEff) { const v = this._num(en.efficiency); e.stEff.textContent = v === null ? "—" : `${Math.round(v)}%`; }
-    if (e.stPow) { const v = this._num(en.recovery_power); e.stPow.textContent = v === null ? "—" : `${v.toFixed(2)} kW`; }
-    if (e.stCop) { const v = this._num(en.cop); e.stCop.textContent = v === null ? "—" : v.toFixed(1); }
+    // Thermal balance (kW) + benefit index: season-aware label, sign-aware colour
+    // and a status tooltip — all sourced from the sensor so card + integration agree.
+    const heatGoal = this._state(en.season) === "Zima";
+    if (e.slPow) e.slPow.textContent = heatGoal ? t("recovery_heat") : t("recovery_cool");
+    if (e.stPow) {
+      const v = this._num(en.recovery_power);
+      e.stPow.textContent = v === null ? "—" : `${v.toFixed(2)} kW`;
+      this._applyBenefit(e.statPow, e.stPow, en.recovery_power);
+    }
+    if (e.slCop) e.slCop.textContent = t("benefit");
+    if (e.stCop) {
+      const v = this._num(en.cop);
+      e.stCop.textContent = v === null ? "—" : v.toFixed(1);
+      this._applyBenefit(e.statCop, e.stCop, en.cop);
+    }
     if (e.stFilter) {
       const filterAlarm = this._isOn(en.filter_change);
       if (e.statFilters) e.statFilters.classList.toggle("warn", filterAlarm);
@@ -1725,6 +1763,10 @@ class ThesslaGreenCard extends HTMLElement {
       .stat .fv:hover { opacity:.6; }
       .stat .ss-sep { color:var(--secondary-text-color); opacity:.45; font-size:.8rem; }
       .stat.warn .sv, .stat.warn .fv:first-of-type { color:var(--tg-crit); }
+      /* Benefit status: green helps the goal, red works against it, muted = neutral. */
+      .stat.good .sv { color:var(--tg-accent-d); }
+      .stat.bad .sv { color:var(--tg-crit); }
+      .stat.neutral .sv { color:var(--secondary-text-color); }
 
       /* Optimistic-state locking */
       .blocked { opacity:.4 !important; pointer-events:none; }
@@ -1765,7 +1807,7 @@ const EDITOR_I18N = {
     temp_intake: "Temperature — intake", temp_supply: "Temperature — supply",
     temp_extract: "Temperature — extract", temp_fpx: "Temperature — after FPX",
     flow_supply: "Airflow — supply", flow_extract: "Airflow — extract",
-    efficiency: "Efficiency", recovery_power: "Recovery power", cop: "COP",
+    efficiency: "Efficiency", recovery_power: "Thermal balance", cop: "Thermal benefit index",
     filter_change: "Filter change", alarm: "Warning (E group)", error: "Error (S, blocking)",
     comfort: "ECO/Comfort", erv: "ERV mode",
   },
@@ -1781,7 +1823,7 @@ const EDITOR_I18N = {
     temp_intake: "Temperatura — czerpnia", temp_supply: "Temperatura — nawiew",
     temp_extract: "Temperatura — wywiew", temp_fpx: "Temperatura — za FPX",
     flow_supply: "Strumień — nawiew", flow_extract: "Strumień — wywiew",
-    efficiency: "Sprawność", recovery_power: "Moc odzysku", cop: "COP",
+    efficiency: "Sprawność", recovery_power: "Bilans termiczny", cop: "Wskaźnik korzyści termicznej",
     filter_change: "Wymiana filtrów", alarm: "Ostrzeżenie (grupa E)", error: "Błąd (S, blokujący)",
     comfort: "EKO/Komfort", erv: "Tryb ERV",
   },
