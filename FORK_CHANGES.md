@@ -1,5 +1,16 @@
 # Fork changes — extra Modbus registers
 
+## v0.5.2-rc.3 (integration only) — card 3.2.0-rc.1
+
+- **Don't judge the exchanger while the bypass is open.** When the bypass actuator is open (coil 9;
+  fallback reg 4330 ≠ 0) the core is deliberately bypassed, so rating its "benefit" is meaningless —
+  the status now goes **neutralna** ("Bypass aktywny — wymiennik omijany, nie oceniam") instead of
+  flagging red. The kW/index value is still computed (continuous chart), just not colour-judged. With
+  the bypass **closed**, evaluation is unchanged — so an adverse reading (e.g. summer, cool outside,
+  supply warmed to indoor temp) still correctly shows red as a "consider bypass/free-cooling" nudge.
+  Verified against live screenshots: bypass off → supply 26.1 °C = extract, 100 % efficiency,
+  −0.94 kW (red); bypass on → supply 24.1 °C, neutral.
+
 ## v0.5.2-rc.2 (integration only) — card 3.2.0-rc.1
 
 - **Fix: more-info history drew categorical colour-bars + discrete logbook values instead of a line

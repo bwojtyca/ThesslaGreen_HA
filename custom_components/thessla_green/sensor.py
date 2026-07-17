@@ -323,12 +323,22 @@ class _BaseComputedSensor(SensorEntity):
         p_kw = 0.000335 * flow * dt_benefit
         return round(p_kw, 3), goal, round(dt_reku, 1)
 
-    @staticmethod
-    def _benefit_status(p_kw, goal):
+    def _bypass_active(self) -> bool:
+        """Czy bypass jest teraz fizycznie otwarty (siłownik — coil 9). Wtedy
+        wymiennik jest celowo omijany, więc nie oceniamy jego 'korzyści'.
+        Fallback: rejestr statusu bypassu 4330 (niezerowy = otwarty)."""
+        open_now = self.coordinator.safe_data.coil.get(9)
+        if open_now is not None:
+            return bool(open_now)
+        return bool(self.coordinator.safe_data.holding.get(4330))  # None/0 → False
+
+    def _benefit_status(self, p_kw, goal):
         """Status słowny na podstawie mocy korzystnej i celu."""
         if p_kw is None or goal is None:
             return None, None
-        if abs(p_kw) < 0.05:              # martwa strefa ~50 W → praktycznie brak wpływu
+        if self._bypass_active():        # wymiennik omijany → nie oceniamy go
+            return "neutralna", "Bypass aktywny — wymiennik omijany, nie oceniam"
+        if abs(p_kw) < 0.05:             # martwa strefa ~50 W → praktycznie brak wpływu
             return "neutralna", "Neutralna — wymiennik prawie nie wpływa na cel"
         if p_kw > 0:
             cel = "grzanie" if goal == "grzanie" else "chłodzenie"
