@@ -1,5 +1,14 @@
 # Fork changes — extra Modbus registers
 
+## v0.5.2-rc.2 (integration only) — card 3.2.0-rc.1
+
+- **Fix: more-info history drew categorical colour-bars + discrete logbook values instead of a line
+  chart** for the benefit index. Cause: rc.1 dropped the unit (`x`) to mark it dimensionless, but
+  without a unit *or* a `state_class` HA treats a sensor as non-numeric → categorical history. Added
+  **`state_class = measurement`** to the three computed sensors (Sprawność, Bilans Termiczny, Wskaźnik
+  Korzyści Termicznej) → proper line chart **and** long-term statistics (min/mean/max, usable in
+  statistics-graph cards).
+
 ## v0.5.2-rc.1 — card 3.2.0-rc.1
 
 Reworks the "COP" metric into an honest, **season-aware thermal benefit** and fixes it reading

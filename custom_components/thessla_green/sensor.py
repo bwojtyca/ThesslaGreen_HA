@@ -1,6 +1,6 @@
 from __future__ import annotations
 import logging
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.const import UnitOfTemperature, UnitOfTime, EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -348,6 +348,7 @@ class RekuEfficiencySensor(_BaseComputedSensor):
         self._attr_unique_id = f"thessla_efficiency_{slave}"
         self._attr_icon = "mdi:percent"
         self._attr_native_unit_of_measurement = "%"
+        self._attr_state_class = SensorStateClass.MEASUREMENT
 
     def _recalc(self):
         To = self._read_temp_czerpnia()
@@ -374,6 +375,7 @@ class RekuRecoveryPowerSensor(_BaseComputedSensor):
         self._attr_unique_id = f"thessla_recovery_power_{slave}"
         self._attr_icon = "mdi:scale-balance"
         self._attr_native_unit_of_measurement = "kW"
+        self._attr_state_class = SensorStateClass.MEASUREMENT
         self._goal = None
         self._status = None
         self._status_text = None
@@ -408,6 +410,10 @@ class RekuCOPSensor(_BaseComputedSensor):
         self._attr_unique_id = f"thessla_cop_{slave}"
         self._attr_icon = "mdi:scale-balance"
         self._attr_native_unit_of_measurement = None
+        # Bezwymiarowy → bez jednostki HA rysowałby historię jako kategorie
+        # (kolorowe paski) zamiast wykresu; state_class=measurement mówi HA
+        # „to ciągły pomiar" → wykres liniowy + statystyki długoterminowe.
+        self._attr_state_class = SensorStateClass.MEASUREMENT
         self._power_entity = power_entity
         self._last_power_val = None
         self._last_power_unit = None
