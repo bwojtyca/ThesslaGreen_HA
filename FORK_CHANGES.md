@@ -1,5 +1,26 @@
 # Fork changes — extra Modbus registers
 
+## v0.5.2 (stable) — card 3.2.0
+
+Stable release of the 0.5.2 line (rc.1–rc.3 below). Reworks the old "COP" into an honest,
+**season-aware thermal benefit** that no longer reads `unavailable` in summer.
+
+- **Sign follows the thermal goal** (season reg 4209): beneficial ΔT = `(Ts − To)` when heating,
+  `(To − Ts)` when cooling. Positive = the exchanger helps the goal, negative = works against it,
+  ~0 = no effect. Deliberately **signed**; only `unavailable` when data is missing / airflow 0 /
+  fan power 0.
+- **Renamed** (unique_ids unchanged → history + dashboards survive): `Moc Odzysku` → **`Bilans
+  Termiczny`** (kW, signed), `COP` → **`Wskaźnik Korzyści Termicznej`** (dimensionless, signed).
+  Both expose `cel` / `status` (korzystna/neutralna/niekorzystna) / `status_opis` / `dt_wymiennik`,
+  and carry `state_class = measurement` (line chart + long-term statistics).
+- **Bypass-aware**: while the bypass actuator is open (coil 9; fallback reg 4330) the exchanger is
+  deliberately bypassed, so its benefit is **not judged** — status goes neutral instead of red.
+- **Card 3.2.0**: season-aware tile labels (`Odzysk ciepła` ↔ `Odzysk chłodu`, `Korzyść`),
+  colour-by-status (green helps / red works against / muted neutral), status tooltip; entity
+  resolution accepts the new and legacy slugs.
+
+---
+
 ## v0.5.2-rc.3 (integration only) — card 3.2.0-rc.1
 
 - **Don't judge the exchanger while the bypass is open.** When the bypass actuator is open (coil 9;
