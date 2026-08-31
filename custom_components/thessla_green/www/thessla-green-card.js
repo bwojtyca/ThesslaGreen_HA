@@ -15,7 +15,7 @@
  * MUST stay in Polish. Only their on-screen labels are localized.
  */
 
-const TG_VERSION = "3.2.0";
+const TG_VERSION = "3.2.1";
 
 // ---------------------------------------------------------------------------
 //  Entity handling. The card auto-detects the ThesslaGreen entities at runtime
@@ -258,6 +258,14 @@ function pickLang(hass) {
 }
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+// Schedule times come straight from the "Harmonogram" sensor attributes.
+// "HH:MM" -> minutes since midnight; null for anything unusable, so a partial
+// or malformed attribute can never throw out of the render.
+function minutesOfDay(value) {
+  if (typeof value !== "string") return null;
+  const [h, m] = value.split(":").map(Number);
+  return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : null;
+}
 
 // Cubic-bezier easing (CSS-style): control points P1(x1,y1) P2(x2,y2), with
 // P0=(0,0) P3=(1,1). Returns f(x)∈[0,1] (Newton-solve x→t, then y). Used for the
@@ -546,6 +554,12 @@ class ThesslaGreenCard extends HTMLElement {
     const a = o && o.attributes;
     return a && (a.summer || a.winter) ? a : null;
   }
+  // The week for the active season — only when it is a full 7 days, so every
+  // consumer below can index it by weekday without checking.
+  _scheduleDays(sched) {
+    const days = sched[sched.season] || sched.summer;
+    return Array.isArray(days) && days.length === 7 ? days : null;
+  }
   // HA locale preferences.
   _firstWeekday() { // 0=Mon .. 6=Sun (schedule order)
     const m = { monday: 0, tuesday: 1, wednesday: 2, thursday: 3, friday: 4, saturday: 5, sunday: 6 };
@@ -578,7 +592,8 @@ class ThesslaGreenCard extends HTMLElement {
 
   _slotsSorted(day) {
     return ((day && day.slots) || [])
-      .map((s) => { const [h, m] = s.start.split(":").map(Number); return { m: h * 60 + m, i: s.i }; })
+      .map((s) => ({ m: minutesOfDay(s && s.start), i: s && s.i }))
+      .filter((s) => s.m !== null)
       .sort((a, b) => a.m - b.m);
   }
   // Base intensity active at Date d (falls back to the previous day's last slot).
@@ -629,10 +644,9 @@ class ThesslaGreenCard extends HTMLElement {
     const dur = sched.airing_duration || 20, inten = sched.airing_intensity || 100, out = [];
     const day = new Date(start); day.setHours(0, 0, 0, 0);
     for (; +day <= end; day.setDate(day.getDate() + 1)) {
-      const a = days[(day.getDay() + 6) % 7].airing;
-      if (!a) continue;
-      const [hh, mm] = a.split(":").map(Number);
-      const t0 = new Date(day); t0.setHours(hh, mm, 0, 0);
+      const start = minutesOfDay((days[(day.getDay() + 6) % 7] || {}).airing);
+      if (start === null) continue;
+      const t0 = new Date(day); t0.setHours(0, start, 0, 0);
       const t1 = +t0 + dur * 60000;
       if (t1 > start && +t0 < end) out.push({ t0: +t0, t1, i: inten });
     }
@@ -655,10 +669,10 @@ class ThesslaGreenCard extends HTMLElement {
   _miniValueAt(t) {
     const sched = this._schedule(); if (!sched) return null;
     const days = sched[sched.season] || sched.summer;
-    const day = days[(new Date(t).getDay() + 6) % 7];
-    if (day.airing) {
-      const [hh, mm] = day.airing.split(":").map(Number);
-      const a0 = new Date(t); a0.setHours(hh, mm, 0, 0);
+    const day = days[(new Date(t).getDay() + 6) % 7] || {};
+    const airing = minutesOfDay(day.airing);
+    if (airing !== null) {
+      const a0 = new Date(t); a0.setHours(0, airing, 0, 0);
       if (t >= +a0 && t < +a0 + (sched.airing_duration || 20) * 60000)
         return { i: sched.airing_intensity || 100, air: true };
     }
@@ -669,7 +683,7 @@ class ThesslaGreenCard extends HTMLElement {
   // night shading, airing spikes (accent), date at midnight, "now" marker.
   _renderScheduleMini() {
     const sched = this._schedule(); if (!sched) return "";
-    const days = sched[sched.season] || sched.summer; if (!days) return "";
+    const days = this._scheduleDays(sched); if (!days) return "";
     const now = new Date(), start = +now - 12 * 3600e3, end = +now + 24 * 3600e3, span = end - start;
     const segs = this._effSegments(days, sched, start, end); if (!segs.length) return null;
     this._miniWin = { start, end };
@@ -729,7 +743,7 @@ class ThesslaGreenCard extends HTMLElement {
   // Intensity as bar HEIGHT; night shaded; airing marked in the accent colour.
   _renderCalendar() {
     const sched = this._schedule(); if (!sched) return "";
-    const days = sched[sched.season] || sched.summer; if (!days) return "";
+    const days = this._scheduleDays(sched); if (!days) return "";
     const names = this._dayNames(), order = this._weekOrder(), sun = this._sunTimes();
     const W = 360, labelW = 30, top = 12, rowH = 16, H = top + 7 * rowH + 2;
     const gx = labelW, gw = W - labelW - 4, cw = gw / 24;
@@ -751,8 +765,9 @@ class ThesslaGreenCard extends HTMLElement {
         const bh = (clamp(iv, 0, 100) / 100) * ih;
         bars += `<rect class="cal-bar" x="${(xcol(h) + 0.3).toFixed(1)}" y="${(iBot - bh).toFixed(1)}" width="${(cw - 0.6).toFixed(2)}" height="${bh.toFixed(1)}"><title>${names[di]} ${this._fmtHour(h)} · ${iv}%</title></rect>`;
       }
-      const a = days[di].airing;
-      if (a) { const [hh, mm] = a.split(":").map(Number); const x = xcol(hh + mm / 60); const w = Math.max(1.5, ((sched.airing_duration || 20) / 60) * cw); air += `<rect class="cal-air" x="${x.toFixed(1)}" y="${iTop}" width="${w.toFixed(1)}" height="${ih}"><title>${this._t("fn_airing")} ${a}</title></rect>`; }
+      const a = (days[di] || {}).airing;
+      const aMin = minutesOfDay(a);
+      if (aMin !== null) { const x = xcol(aMin / 60); const w = Math.max(1.5, ((sched.airing_duration || 20) / 60) * cw); air += `<rect class="cal-air" x="${x.toFixed(1)}" y="${iTop}" width="${w.toFixed(1)}" height="${ih}"><title>${this._t("fn_airing")} ${a}</title></rect>`; }
     });
     return `<svg viewBox="0 0 ${W} ${H}" class="cal-svg" role="img" aria-label="${this._t("schedule_title")}">
       <defs>
@@ -1782,7 +1797,7 @@ class ThesslaGreenCard extends HTMLElement {
   }
 }
 
-if (!customElements.get("thessla-green-card")) customElements.define("thessla-green-card", ThesslaGreenCard);
+// Registration is deferred to the bottom of this file — see registerCard().
 
 // ---------------------------------------------------------------------------
 //  Visual editor (native <ha-form>, localized)
@@ -1996,7 +2011,61 @@ class ThesslaGreenCardEditor extends HTMLElement {
   }
 }
 
-if (!customElements.get("thessla-green-card-editor")) customElements.define("thessla-green-card-editor", ThesslaGreenCardEditor);
+
+// ---------------------------------------------------------------------------
+//  Registration — wait for the frontend's custom element registry
+// ---------------------------------------------------------------------------
+// The integration auto-loads this file from index.html (frontend.add_extra_js_url),
+// so it runs in parallel with the frontend's own bundle instead of after it. Early
+// in its boot, app.js installs the scoped custom element registry polyfill, which
+// REPLACES window.customElements with a fresh, empty registry:
+//
+//     Object.defineProperty(window, "customElements", { value: new CustomElementRegistry, ... })
+//
+// A tag registered before that swap stays in the native registry only. Lovelace
+// looks the card up with `customElements.get("thessla-green-card")` on the NEW
+// registry, misses it, and renders the "Configuration error" card instead — and it
+// never recovers, because the retry it arms (`customElements.whenDefined`) queries
+// that same new registry and never fires. Which side of the swap we land on is a
+// pure timing race: a warm browser cache makes this file win it, and lose the card.
+// That is the "card sometimes fails to load until I reload a few times" bug.
+//
+// Registering LATE is harmless (Lovelace rebuilds the card as soon as the tag is
+// defined), registering EARLY is fatal — so wait for the real registry first.
+const REGISTRY_POLL_MS = 20;
+const REGISTRY_WAIT_MS = 10000; // safety net: register anyway rather than never
+
+function defineElement(tag, ctor) {
+  if (window.customElements.get(tag)) return;
+  try {
+    window.customElements.define(tag, ctor);
+  } catch (e) {
+    console.error(`[thessla-green-card] could not register <${tag}>`, e);
+  }
+}
+
+function registerCard() {
+  defineElement("thessla-green-card", ThesslaGreenCard);
+  defineElement("thessla-green-card-editor", ThesslaGreenCardEditor);
+}
+
+// True once window.customElements is the registry the frontend actually uses:
+// either it has already been swapped for the polyfilled one, or the frontend
+// booted before us (e.g. this file loaded as a Lovelace resource) and its own
+// elements are in the current registry.
+function frontendRegistryReady(initialRegistry) {
+  return window.customElements !== initialRegistry || !!window.customElements.get("home-assistant");
+}
+
+(function registerWhenRegistryIsReady() {
+  const initialRegistry = window.customElements;
+  const deadline = Date.now() + REGISTRY_WAIT_MS;
+  const attempt = () => {
+    if (frontendRegistryReady(initialRegistry) || Date.now() > deadline) registerCard();
+    else setTimeout(attempt, REGISTRY_POLL_MS);
+  };
+  attempt();
+})();
 
 window.customCards = window.customCards || [];
 window.customCards.push({

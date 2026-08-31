@@ -1,5 +1,33 @@
 # Fork changes — extra Modbus registers
 
+## v0.5.3 — card 3.2.1 — fix: card intermittently showed "Configuration error"
+
+Bugfix only, no entity or behaviour changes.
+
+The card is auto-loaded from `index.html` (`frontend.add_extra_js_url`), so it is evaluated in
+parallel with the frontend's own `app.js` — not after it. Early in its boot, `app.js` installs the
+scoped custom element registry polyfill, which **replaces `window.customElements` with a new, empty
+registry**. A tag registered before that swap stays in the native registry only, so Lovelace's
+`customElements.get("thessla-green-card")` lookup misses it and renders the **"Configuration
+error"** card instead — permanently, because the retry it arms (`customElements.whenDefined`) also
+queries the new registry and never fires.
+
+Which side of the swap this file landed on was a pure timing race (measured: card at 17–28 ms,
+registry swap at 33–92 ms), so a warm browser cache made the card *lose* — hence "it usually needs
+a few reloads". Other custom cards are unaffected because Lovelace *resources* are loaded after the
+frontend has booted.
+
+- **Fix**: `customElements.define()` for `thessla-green-card` / `thessla-green-card-editor` is now
+  deferred until the frontend's registry is in place (registry swapped, or its own elements
+  visible), with a 10 s safety net. Registering late is harmless — Lovelace rebuilds the card as
+  soon as the tag is defined.
+- Verified against a live HA 2026.8.3 in a real browser: before the fix 4/4 page loads rendered the
+  error card, after it 5/5 rendered the card.
+- **Hardening**: the weekly-schedule parsing (`_slotsSorted`, `_airingWindows`, `_miniValueAt`,
+  `_renderCalendar`) no longer assumes a full, well-formed week. Times go through one
+  `minutesOfDay()` helper and both schedule views bail out unless the season holds all 7 days — an
+  exception thrown from the card's `hass` setter also shows up as "Configuration error".
+
 ## v0.5.2 (stable) — card 3.2.0
 
 Stable release of the 0.5.2 line (rc.1–rc.3 below). Reworks the old "COP" into an honest,
